@@ -12,7 +12,7 @@ Cain shows these robots to people. They must **just work** from physical inputs 
 - Add behavior as **part of the robot's firmware or always-on brain** (ROS node, service, docker compose default stack).
 - Trigger from **on-bot inputs**: Go button, E-stop, ToF, IMU, wheel ticks, battery, schedule.
 - Use **separate PlatformIO envs** only for bench/hardware bring-up (`motor_test`, `c3_bench`, `s3_min`) — that's fine.
-- Brain logic lives on the **NUC brain** (`/data/swarm/robot-fleet`) as services that start with the fleet — not one-off scripts Cain must run.
+- Brain logic lives on the **NUC brain** (`/data/swarm/robot-swarm-brain`) as services that start with the fleet — not one-off scripts Cain must run.
 
 ## Don't
 

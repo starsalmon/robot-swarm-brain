@@ -1,4 +1,4 @@
-bash: line 3: cd: /data/swarm/lego-rover-ros2/captures/geom_straight_20261003_095853: No such file or directory
+bash: line 3: cd: /data/swarm/robot-swarm-brain/captures/geom_straight_20261003_095853: No such file or directory
 [WARN] [ros2bag]: Positional "topics" argument deprecated. Please use optional "--topics" argument instead.
 stdin is not a terminal device. Keyboard handling disabled.[INFO] [1791021541.610304791] [rosbag2_recorder]: Press SPACE for pausing/resuming
 [INFO] [1791021541.610424910] [rosbag2_recorder]: Event publisher thread: Started

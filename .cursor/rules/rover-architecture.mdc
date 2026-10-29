@@ -9,7 +9,7 @@ alwaysApply: true
 
 ## Compute split (current production)
 
-**Brain** = NUC11 Ubuntu host `brain` at **192.168.3.172**. Docker stack in `/data/swarm/robot-fleet` (`rover-brain`, `fleet-brain`, `tracked-brain`, `microros-agent`, `fleet-ha`), **ROS 2 Jazzy**.
+**Brain** = NUC11 Ubuntu host `brain` at **192.168.3.172**. Docker stack in `/data/swarm/robot-swarm-brain` (`rover-brain`, `fleet-brain`, `tracked-brain`, `microros-agent`, `fleet-ha`), **ROS 2 Jazzy**.
 
 | Bot | Fleet ID | Brain container | ESP role | ROS namespace |
 |-----|----------|-----------------|----------|---------------|

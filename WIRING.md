@@ -2,7 +2,7 @@
 
 All Rover hardware is on the two ESP32-S3 boards; see [`lego-rover-esp32/WIRING.md`](../lego-rover-esp32/WIRING.md). Nothing is wired to the brain.
 
-## Brain environment (rover-brain, `/data/swarm/robot-fleet/docker-compose.yml`)
+## Brain environment (rover-brain, `/data/swarm/robot-swarm-brain/docker-compose.yml`)
 
 | Env | Value |
 |-----|-------|

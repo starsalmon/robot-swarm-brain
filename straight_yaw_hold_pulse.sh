@@ -16,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 
 # kill stale pubs
-/data/swarm/robot-fleet/kill-stale-ros-pubs.sh 2>/dev/null || true
+/data/swarm/robot-swarm-brain/kill-stale-ros-pubs.sh 2>/dev/null || true
 
 docker run --rm --network host \
   -v "$SCRIPT:/pulse.py:ro" \

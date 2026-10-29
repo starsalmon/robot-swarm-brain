@@ -8,7 +8,7 @@ alwaysApply: true
 | Repo | What it is |
 |------|------------|
 | **lego-rover-esp32** | LEGO rover firmware — T-Display-S3 drive board (motors, IMU, wheel ticks, ring, display) + Pro S3 ToF board |
-| **lego-rover-ros2** | Rover brain code (ROS 2 Jazzy), synced from the NUC brain `/data/swarm/robot-fleet` — explore, logging |
+| **lego-rover-ros2** | Rover brain code (ROS 2 Jazzy), synced from the NUC brain `/data/swarm/robot-swarm-brain` — explore, logging |
 | **c3-mini-bot** | Small ESP32-C3 swarm bots — thin clients, namespaced topics, fleet via the NUC brain |
 | **yoRadio-fusion-pros3** | yoRadio fork — Fusion Pro S3 internet radio, display, MQTT, NeoStatus |
 | **BT-A2DP-Source-HiGrow** | Bluetooth A2DP audio source |
@@ -21,7 +21,7 @@ alwaysApply: true
 
 ## Fleet architecture
 
-- **NUC brain** `192.168.3.172` = ROS 2 Jazzy in Docker (`/data/swarm/robot-fleet`) + one micro-ROS agent UDP **8888**.
+- **NUC brain** `192.168.3.172` = ROS 2 Jazzy in Docker (`/data/swarm/robot-swarm-brain`) + one micro-ROS agent UDP **8888**.
 - Each bot = **thin ESP client** (motors/servos, sensors, local safety, WiFi micro-ROS).
 - **0** Rover (`/rover/…`), **1** Roby (`/bot1/…`), **2** Tracker (`/bot2/…`), **4** Beaper (name only, no hardware spec).
 - Planned, no fleet ID yet: **Beeper Baby**, **Jazz**. Details and open items are in `lego-rover-ros2/ROADMAP.md`. Beeper Baby is not Beaper unless Cain says they are the same robot.

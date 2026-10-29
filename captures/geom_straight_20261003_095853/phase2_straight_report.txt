@@ -1,5 +1,5 @@
 Phase2 straight capture
-cap=/data/swarm/lego-rover-ros2/captures/geom_straight_20261003_095853
+cap=/data/swarm/robot-swarm-brain/captures/geom_straight_20261003_095853
 start_wall_utc=2026-10-03T09:58:53Z
 bag_14s: ticks L 1->41 (d=40) R 1->35 (d=34) mean_dist_m=0.969 dt=14.00s
 bag_full: L 1->83 R 1->76 dL=82 dR=75 mean_dist_m=2.055 dt=32.12s

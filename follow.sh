@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # One supervised person-follow run with bag + guaranteed cleanup (same pattern as safe_drive.sh). On the NUC in
-# /data/swarm/robot-fleet:   ./follow.sh [max_s=0] [vmax=0.10] [wmax=0.15] [target_m=1.0]   (max_s 0 = run until stopped)
+# /data/swarm/robot-swarm-brain:   ./follow.sh [max_s=0] [vmax=0.10] [wmax=0.15] [target_m=1.0]   (max_s 0 = run until stopped)
 #   ./follow.sh stop   (any shell: kills the follower, zeros /cmd_vel, session off, stop_all, allow_drive OFF). Ctrl-C does the same.
 # Stops the dry-run rover-follow service, sets allow_drive ON (retained), pauses rover-brain, records a bag,
 # runs person_follow.py with FOLLOW_DRY_RUN=0 (dead-man = max_s), then ALWAYS: unpause rover-brain, zero

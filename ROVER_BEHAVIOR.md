@@ -1,6 +1,6 @@
 # Rover behaviour — explore (current)
 
-Explore runs in the `rover-brain` container on the NUC brain (`/data/swarm/robot-fleet`: `rover_brain.py`, `explore_controller.py`, `rover_proximity.py`, `rover_wheel_odom.py`). The drive board executes `/cmd_vel` and enforces local safety. All speeds below are **usable %** (cmd value × 100).
+Explore runs in the `rover-brain` container on the NUC brain (`/data/swarm/robot-swarm-brain`: `rover_brain.py`, `explore_controller.py`, `rover_proximity.py`, `rover_wheel_odom.py`). The drive board executes `/cmd_vel` and enforces local safety. All speeds below are **usable %** (cmd value × 100).
 
 ## Starting and stopping
 

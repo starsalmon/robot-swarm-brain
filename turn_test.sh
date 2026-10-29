@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One supervised short forward drive with bag + guaranteed cleanup. Run on the NUC in /data/swarm/robot-fleet.
+# One supervised short forward drive with bag + guaranteed cleanup. Run on the NUC in /data/swarm/robot-swarm-brain.
 #   ./safe_drive.sh [ticks=60] [clearance_m=0.6] [vmax=0.10] [timeout_s=3] [turn_deg=0]   (BAGSECS env, default 25)
 # Sets allow_drive ON (retained), pauses rover-brain (its idle zero cmd_vel would fight the test),
 # records a bag in captures/, runs rover_safe_drive.py in fleet-shell, then ALWAYS: unpause rover-brain,
