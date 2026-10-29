@@ -1,1 +1,1 @@
-OCI runtime exec failed: exec failed: unable to start container process: chdir to cwd ("/data/swarm/robot-swarm-brain/captures/geom_straight_20261003_095853") set in config.json failed: no such file or directory
+OCI runtime exec failed: exec failed: unable to start container process: chdir to cwd ("/data/swarm/lego-rover-ros2/captures/geom_straight_20261003_095853") set in config.json failed: no such file or directory

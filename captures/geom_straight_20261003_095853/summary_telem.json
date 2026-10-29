@@ -1,5 +1,5 @@
 {
-  "cap": "/data/swarm/robot-swarm-brain/captures/geom_straight_20261003_095853",
+  "cap": "/data/swarm/lego-rover-ros2/captures/geom_straight_20261003_095853",
   "start": {
     "iso": "2026-10-03T09:59:00.714486+00:00",
     "t_ms": 6002904,
