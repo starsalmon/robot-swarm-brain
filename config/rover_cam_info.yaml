@@ -1,0 +1,22 @@
+# Rover AI Cam calibration 2026-10-20 22:24 - 84 frames (run2 42 + run3 42), pinhole 5-coef
+# RMS 0.834 px; HFOV ~104 deg. Replaces fx 217.68 overfit cal.
+image_width: 320
+image_height: 240
+camera_name: rover_cam
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [124.267346, 0.0, 158.975903, 0.0, 124.9931, 125.6275, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.26922952, -0.24187491, 0.0024047, -0.00380127, 0.05842186]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [124.267346, 0.0, 158.975903, 0.0, 0.0, 124.9931, 125.6275, 0.0, 0.0, 0.0, 1.0, 0.0]

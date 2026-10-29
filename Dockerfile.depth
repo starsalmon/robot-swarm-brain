@@ -1,0 +1,10 @@
+# Rover monocular depth (Depth Anything V2 Metric Indoor Small) on the NVIDIA runtime.
+FROM ros:jazzy-ros-base
+ENV DEBIAN_FRONTEND=noninteractive PIP_BREAK_SYSTEM_PACKAGES=1 HF_HOME=/models
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-pip python3-opencv python3-yaml ros-jazzy-cv-bridge \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir --ignore-installed torch --index-url https://download.pytorch.org/whl/cu126 \
+ && pip3 install --no-cache-dir transformers safetensors huggingface_hub
+# Bake the weights in so the container starts offline.
+RUN python3 -c "from transformers import AutoModelForDepthEstimation as M; M.from_pretrained('depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf')"

@@ -238,3 +238,74 @@ services:
       bash -c "source /opt/ros/jazzy/setup.bash &&
       exec python3 /opt/fleet/beacon_chase.py"
     restart: unless-stopped
+
+  # Rover camera ingest (DFRobot ESP32-S3 AI Cam V1.1). DISABLED until the camera exists:
+  # only starts with `docker compose --profile camera up -d rover-camera`.
+  rover-camera:
+    image: ros:jazzy-ros-base
+    container_name: rover-camera
+    profiles: ["camera"]
+    network_mode: host
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - CAMERA_URL=${ROVER_CAMERA_URL:-http://192.168.3.128:81/stream}
+      - CAMERA_FRAME_ID=camera_link
+      - CAMERA_INFO_YAML=/opt/fleet/config/rover_cam_info.yaml
+      - CAMERA_PUBLISH_RAW=0
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/rover_camera_bridge.py"
+    restart: unless-stopped
+
+  # Wheel odometry + IMU restamp + static TFs + robot_localization EKF (odom->base_link).
+  # Start: docker compose --profile slam up -d rover-odom   (frames/offsets: config/rover_frames.yaml)
+  rover-odom:
+    build:
+      context: .
+      dockerfile: Dockerfile.odom
+    image: rover-odom:jazzy
+    container_name: rover-odom
+    profiles: ["slam"]
+    network_mode: host
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - ROVER_FRAMES_YAML=/opt/fleet/config/rover_frames.yaml
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      python3 /opt/fleet/rover_odom.py &
+      source /opt/ros/jazzy/setup.bash &&
+      exec ros2 run robot_localization ekf_node --ros-args -r __node:=rover_ekf
+      --params-file /opt/fleet/config/ekf_rover.yaml"
+    restart: unless-stopped
+
+  # Monocular metric depth (Depth Anything V2 Metric-Indoor-Small) on the RTX 2060.
+  # Start: docker compose --profile slam up -d rover-depth   (DEPTH_L8_SCALE=1 enables L8 scale correction)
+  rover-depth:
+    build:
+      context: .
+      dockerfile: Dockerfile.depth
+    image: rover-depth:jazzy
+    container_name: rover-depth
+    profiles: ["slam"]
+    network_mode: host
+    runtime: nvidia
+    volumes:
+      - .:/opt/fleet:ro
+      - ./captures:/captures
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - DEPTH_L8_SCALE=${ROVER_DEPTH_L8_SCALE:-0}
+      - DEPTH_SAMPLE_PATH=/captures/depth_sample.png
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/rover_depth.py"
+    restart: unless-stopped

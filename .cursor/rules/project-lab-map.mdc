@@ -17,12 +17,14 @@ alwaysApply: true
 | **Magic-8-Ball** / **Magic-GIF-Ball** | Magic 8 ball variants |
 | **NFCNoisy** | NFC-triggered noise toy |
 | **lego-roverquest** | Rover-related experiment/quest code |
+| **jazz** | Jazz bench firmware. First sketch is a one-motor SimpleFOC test on a Pro S3 (`WIRING.md`). |
 
 ## Fleet architecture
 
 - **NUC brain** `192.168.3.172` = ROS 2 Jazzy in Docker (`/data/swarm/robot-fleet`) + one micro-ROS agent UDP **8888**.
 - Each bot = **thin ESP client** (motors/servos, sensors, local safety, WiFi micro-ROS).
-- **0** Rover (`/rover/…`), **1** Roby (`/bot1/…`), **2** Tracker (`/bot2/…`), **4** Beaper (WIP).
+- **0** Rover (`/rover/…`), **1** Roby (`/bot1/…`), **2** Tracker (`/bot2/…`), **4** Beaper (name only, no hardware spec).
+- Planned, no fleet ID yet: **Beeper Baby**, **Jazz**. Details and open items are in `lego-rover-ros2/ROADMAP.md`. Beeper Baby is not Beaper unless Cain says they are the same robot.
 
 ## Key docs (read before guessing pins or architecture)
 
@@ -32,3 +34,4 @@ alwaysApply: true
 | `lego-rover-ros2/ROVER_BEHAVIOR.md` | Explore, limits, escapes, ESP safety ladder |
 | `c3-mini-bot/WIRING.md` | C3 pins, direct GPIO servos, sonar, TSOP |
 | `c3-mini-bot/docs/SWARM.md` | Fleet IDs and coordination |
+| `lego-rover-ros2/ROADMAP.md` | Unbuilt bots and fleet plans (Beeper Baby, Jazz, shared dock). Unset items stay unset. |

@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Fleet & rover architecture
 
-**Source of truth:** `lego-rover-esp32/WIRING.md`, `lego-rover-ros2/ROVER_BEHAVIOR.md`, `c3-mini-bot/WIRING.md`, `c3-mini-bot/docs/SWARM.md`
+**Source of truth:** `lego-rover-esp32/WIRING.md`, `lego-rover-ros2/ROVER_BEHAVIOR.md`, `lego-rover-ros2/ROADMAP.md`, `c3-mini-bot/WIRING.md`, `c3-mini-bot/docs/SWARM.md`
 
 ## Compute split (current production)
 
@@ -35,12 +35,13 @@ alwaysApply: true
 | GPIO 17/18 | Speaker / WS2812 LED ring (distance colours from the Pro S3 ToF topics) |
 | GPIO 0 | Go button / E-stop |
 
-No IR/MCP expander, no sonar, no local ToF. Env `s3_tdisplay_microros_rover_drive` (`ROVER_DRIVE_ONLY=1`). Diagnostics on `/rover/drive_diag` (1 Hz string).
+No MCP expander, no sonar, no local ToF. IR TX is GPIO 21 (off unless enabled). IR RX is on the Pro S3, not this board. Env `s3_tdisplay_microros_rover_drive` (`ROVER_DRIVE_ONLY=1`). Diagnostics on `/rover/drive_diag` (1 Hz string).
 
 ### ToF board: UM Pro S3 (`rover-tof`)
 
 - **VL53L8CX** front on its own I2C bus at **400 kHz**; **VL53L0X** left/right + **PCA9685** on the second bus.
 - Publishes `/rover/tof/front`, `front_left`, `front_right`, `l8_cols`, `left`, `right`.
+- IR RX GPIO 14, IR TX GPIO 21 (fleet id 0, same frame format as the other bots).
 - Onboard ceramic antenna (`ROVER_PROS3_ANT_EXTERNAL=0`). Env `um_pros3_tof_microros`.
 
 Transport (both boards): **WiFi micro-ROS** → brain agent `192.168.3.172:8888`.
@@ -86,4 +87,9 @@ Features belong **in the robot** (firmware + always-on brain), triggered by **Go
 
 ## Roadmap (not yet built)
 
-- Camera-based mapping: FireBeetle 2 ESP32-S3 + OV3660 → RTAB-Map, Nav2, explore_lite (next milestone).
+Full brief, including what is still unset: `ROADMAP.md`. Do not invent pins, fleet IDs, or parts past that file.
+
+- **Rover camera mapping** — DFRobot ESP32-S3 AI Camera as a third ESP node, then RTAB-Map, Nav2, explore_lite. Ingest code exists. Camera is not mounted.
+- **Beeper Baby** — modified beeper-bot chassis, FireBeetle 2, DRV8835, N20s with hall wheel sensors, front ToF and IR camera, 1200 mAh LiPo. No fleet ID. Not the same record as Beaper (ID 4) until Cain says so. Candidate dock prototype only.
+- **Jazz (Smooth Jazz)** — legs. 3S LiPo, 2208 BLDC direct drive in the wheels, SimpleFOC Mini, two servo extendable legs, Pro S3 for the robot, Pi Zero 2 W + Camera Module 3 Wide streaming to the brain and doing nothing else. No fleet ID. Jumping is an open question, not a feature.
+- **Every bot** — IMU and IR TX/RX. One shared charging dock eventually (magnets and springs are only the current idea). Low-charge negotiation and IR recognition of each other. Rover, Roby, and Tracker already have IMU and fleet IR ids 0, 1, and 2.

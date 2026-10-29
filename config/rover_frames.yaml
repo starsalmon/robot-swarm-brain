@@ -1,0 +1,17 @@
+# Rover static TF tree - THE one place to edit sensor offsets (metres, degrees).
+# base_link = on the FLOOR directly below the wheel-axle midpoint (base_footprint style); +x forward, +y left, +z up.
+# camera_link uses ROS body convention (x forward); rover_odom adds camera_link -> camera_optical_frame
+# (z forward, x right, y down) automatically. Depth/image consumers should use camera_optical_frame.
+frames:
+  imu_link:            # MPU on the drive board - placeholder, assumed at the axle centre, aligned
+    parent: base_link
+    xyz: [0.0, 0.0, 0.05]
+    rpy_deg: [0.0, 0.0, 0.0]
+  camera_link:         # AI Cam lens. x/y measured by Cain 2026-10-20 (72.4 mm fwd of axle, 6.25 mm left, lens 106 mm above floor)
+    parent: base_link
+    xyz: [0.0724, 0.00625, 0.106]
+    rpy_deg: [0.0, 0.0, 0.0]   # level, forward-facing
+wheel:
+  slits_per_rev: 60     # firmware counts RISING edges only (attachInterrupt RISING) -> 60 ticks/rev
+  diameter_m: 0.095
+  track_m: 0.130
