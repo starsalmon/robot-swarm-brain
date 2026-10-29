@@ -5,7 +5,7 @@ Sub  /rover/camera/image_raw/compressed, /rover/camera/camera_info, /rover/tof/f
 Pub  /rover/camera/depth (Image 32FC1, metres, rectified, camera_optical_frame, source stamp)
      /rover/camera/depth/camera_info (rectified: same K, zero distortion, same stamp)
      /rover/camera/image_rect/compressed (rectified JPEG matching the depth, same stamp)
-     /rover/camera/depth_small (+/camera_info): 160x120 16UC1 mm - use this across containers (UDP)
+     /rover/camera/depth_small (+/camera_info): 160x120 16UC1 mm (fixed size, K scaled from input) - use this across containers (UDP)
 Env  DEPTH_MODEL (HF id), DEPTH_INPUT_H (multiple of 14, default 252 -> 336x252),
      DEPTH_L8_SCALE=1 to multiply depth by the smoothed median L8/depth ratio (off by default),
      DEPTH_SAMPLE_PATH (writes a colormap PNG once after 50 frames), DEPTH_FRAME_ID.
@@ -105,13 +105,13 @@ class Depth(Node):
             out.data = d.astype(np.float32).tobytes()
             self.pub_d.publish(out)
             self.rect_info.header = out.header; self.pub_i.publish(self.rect_info)
-            ds = cv2.resize(d, (d.shape[1] // 2, d.shape[0] // 2), interpolation=cv2.INTER_NEAREST)
+            sx = 160.0 / d.shape[1]; ds = cv2.resize(d, (160, int(round(d.shape[0] * sx))), interpolation=cv2.INTER_NEAREST)  # fixed 160 wide (120 at 4:3)
             sm = Image(); sm.header = out.header; sm.height, sm.width = ds.shape; sm.encoding = "16UC1"
             sm.step = sm.width * 2; sm.data = np.clip(ds * 1000, 0, 65535).astype(np.uint16).tobytes()
             self.pub_ds.publish(sm)
             si = CameraInfo(); si.header = out.header; si.width, si.height = sm.width, sm.height
             si.distortion_model = "plumb_bob"; si.d = [0.0] * 5
-            k = [x * 0.5 for x in self.rect_info.k]; k[8] = 1.0; si.k = k
+            k = [x * sx for x in self.rect_info.k]; k[8] = 1.0; si.k = k
             si.r = list(self.rect_info.r); si.p = [k[0], 0.0, k[2], 0.0, 0.0, k[4], k[5], 0.0, 0.0, 0.0, 1.0, 0.0]
             self.pub_dsi.publish(si)
             r = CompressedImage(); r.header = out.header; r.format = "jpeg"

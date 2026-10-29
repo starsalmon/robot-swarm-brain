@@ -1,0 +1,22 @@
+# XGA 1024x768 = QVGA cal (2026-10-20, RMS 0.834 px) scaled x3.2; same FoV confirmed by QVGA/XGA SIFT match (fx 397.7 measured).
+image_width: 1024
+image_height: 768
+camera_name: rover_cam
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [397.6555, 0.0, 508.7229, 0.0, 399.9779, 402.008, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [0.26922952, -0.24187491, 0.0024047, -0.00380127, 0.05842186]
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [397.6555, 0.0, 508.7229, 0.0, 0.0, 399.9779, 402.008, 0.0, 0.0, 0.0, 1.0,
+    0.0]

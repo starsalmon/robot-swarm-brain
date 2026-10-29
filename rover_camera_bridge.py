@@ -105,12 +105,12 @@ class CameraBridge(Node):
             self.frames, self.t0 = 0, now
 
     def run(self):
-        backoff = 1.0
+        backoff = 0.5
         while rclpy.ok():
             try:
                 self.get_logger().info(f"connecting {URL}")
-                with urllib.request.urlopen(URL, timeout=5) as resp:
-                    backoff = 1.0
+                with urllib.request.urlopen(URL, timeout=1.5) as resp:   # 1.5 s stall detect (was 5)
+                    backoff = 0.5
                     buf = b""
                     while rclpy.ok():
                         chunk = resp.read(8192)
@@ -132,9 +132,9 @@ class CameraBridge(Node):
                         if len(buf) > 2_000_000:
                             buf = b""
             except Exception as e:  # noqa: BLE001 - keep retrying until the camera exists
-                self.get_logger().warn(f"camera stream: {e}; retry in {backoff:.0f}s")
+                self.get_logger().warn(f"camera stream: {e}; retry in {backoff:.1f}s")
                 time.sleep(backoff)
-                backoff = min(backoff * 2.0, 30.0)
+                backoff = min(backoff * 2.0, 3.0)   # cam reboots in ~3 s; was 30 s cap
 
 
 def main():

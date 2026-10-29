@@ -39,8 +39,14 @@ class RoverBrain(Node):
         default_drive = DRIVE_WALL if env_mode == 'hallway' else DRIVE_EXPLORE
         super().__init__('rover_brain')
 
-        self.pub = self.create_publisher(Twist, '/cmd_vel', CMD_VEL_QOS)
-        self.session_pub = self.create_publisher(Bool, '/rover/session', 10)
+        # Arbiter mode (rover-behaviour owns /cmd_vel + /rover/session): explore output goes to
+        # ROVER_CMD_TOPIC, the session is driven by /rover/behaviour/explore_active, allow_drive is
+        # enforced by the arbiter (explore keeps thinking while driving is disabled = dry-run).
+        self._arbiter = os.environ.get('ROVER_EXPLORE_ARBITER', '0').strip().lower() in ('1', 'true', 'yes')
+        cmd_topic = os.environ.get('ROVER_CMD_TOPIC', '/cmd_vel')
+        ses_topic = os.environ.get('ROVER_SESSION_TOPIC', '/rover/session')
+        self.pub = self.create_publisher(Twist, cmd_topic, CMD_VEL_QOS)
+        self.session_pub = self.create_publisher(Bool, ses_topic, 10)
         self.heartbeat_pub = self.create_publisher(UInt32, '/rover/heartbeat', 10)
         self.sonar_cal_pub = self.create_publisher(Bool, '/rover/sonar/cal_sweep', 10)
 
@@ -78,7 +84,12 @@ class RoverBrain(Node):
             self.get_logger().info('motion source: Nav2 /cmd_vel_nav (Go still gates the wheels)')
 
         self._allow_drive = True
-        self.create_subscription(Bool, '/fleet/allow_drive', self._on_allow_drive, 10)
+        if self._arbiter:
+            self.create_subscription(Bool, '/rover/behaviour/explore_active',
+                                     lambda m: self._set_session(bool(m.data), 'arbiter'), 10)
+            self.get_logger().info(f'ARBITER mode: explore -> {cmd_topic}, session via /rover/behaviour/explore_active')
+        else:
+            self.create_subscription(Bool, '/fleet/allow_drive', self._on_allow_drive, 10)
 
         self.create_subscription(Bool, '/rover/button', self._on_button, 10)
         self.create_subscription(UInt8, '/rover/button_event', self._on_button_event, 10)
@@ -175,7 +186,7 @@ class RoverBrain(Node):
         self.get_logger().info(f'allow_drive={allow}')
 
     def _on_button(self, msg: Bool) -> None:
-        if not msg.data:
+        if not msg.data or self._arbiter:
             return
         if not self._allow_drive:
             self.get_logger().info('Go ignored — wall panel halt (Allow drive is off)')

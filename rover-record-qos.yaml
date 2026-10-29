@@ -1,0 +1,135 @@
+/cmd_vel:
+  reliability: reliable
+  history: keep_last
+  depth: 10
+
+/bot1/cmd_vel:
+  reliability: reliable
+  history: keep_last
+  depth: 10
+
+/rover/session:
+  reliability: reliable
+  history: keep_last
+  depth: 10
+
+/rover/heartbeat:
+  reliability: reliable
+  history: keep_last
+  depth: 10
+
+/bot1/sonar/range:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/sonar/pan_deg:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/imu:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/ir/detected:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/bot1/battery/voltage:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/imu/data:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/sonar/range:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/sonar/pan_deg:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/sonar/avoid_active:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/left:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/right:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/front:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/front_left:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/front_right:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/tof/l8_cols:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/wheel/left_ticks:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/wheel/right_ticks:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/button:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/button_event:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/drive_mode:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/bump:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/stall:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/battery/voltage:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+

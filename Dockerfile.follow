@@ -1,0 +1,6 @@
+# Rover person following (YOLO11 + ByteTrack) on the NVIDIA runtime; reuses the rover-depth base (torch cu126, cv_bridge).
+FROM rover-depth:jazzy
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 YOLO_CONFIG_DIR=/models/yolo
+RUN pip3 install --no-cache-dir ultralytics lap "numpy<2" && pip3 uninstall -y opencv-python opencv-python-headless || true
+RUN pip3 install --no-cache-dir --force-reinstall --no-deps torchvision --index-url https://download.pytorch.org/whl/cu126
+RUN mkdir -p /models/yolo /weights && cd /weights && python3 -c "from ultralytics import YOLO; [YOLO(m) for m in (\"yolo11n.pt\",\"yolo11s.pt\",\"yolo11m.pt\")]"

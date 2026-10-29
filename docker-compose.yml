@@ -61,6 +61,7 @@ services:
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - BOT_NS=bot2
+      - DRIVE_ENABLE=${TRACKED_DRIVE_ENABLE:-1}  # follows /fleet/allow_drive like Rover
       - DRIVE_CSV=/tmp/tracked-drive-log.csv
       - MEET_PEER_STABLE=3
       - WANDER_STOP_M=0.12
@@ -95,9 +96,9 @@ services:
       # Slightly slower default gives the brain time to steer away before ESP braking.
       # Speed cap 25% usable (cmd 0.25 = 25% of the usable range above the firmware PWM floor).
       # Burst capped to match; gentle 10% reverse; steer-around starts curving at 1.10 m.
-      - ROVER_AUTO_MAX_LINEAR=${ROVER_AUTO_MAX_LINEAR:-0.25}
+      - ROVER_AUTO_MAX_LINEAR=${ROVER_AUTO_MAX_LINEAR:-0.12}
       - ROVER_AUTO_REVERSE_POWER=0.10
-      - ROVER_AUTO_BURST_MAX=0.25
+      - ROVER_AUTO_BURST_MAX=0.12
       - ROVER_PICTURE_STEER_FAR_M=1.10
       - ROVER_PICTURE_STEER_SLOW=0.80
       # 0.10 was too low to steer away early; keep smoothness on ESP ramp,
@@ -106,6 +107,10 @@ services:
       - ROVER_AUTO_REVERSE_FRAC=${ROVER_AUTO_REVERSE_FRAC:-0.60}
       - ROVER_IMU_GYRO_SIGN=${ROVER_IMU_GYRO_SIGN:-1.0}
       - ROVER_MODE=${ROVER_MODE:-explore}
+      # rover-behaviour owns /cmd_vel + /rover/session; explore output is only a suggestion.
+      - ROVER_EXPLORE_ARBITER=1
+      - ROVER_CMD_TOPIC=/rover/explore/cmd_vel
+      - ROVER_SESSION_TOPIC=/rover/explore/session
       # No Pro S3 / L8 picture — blind cruise + bump/stall (set 1 to restore ToF steer)
       - ROVER_PICTURE=1
       - ROVER_WHEEL_STRIPS=60
@@ -253,7 +258,7 @@ services:
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - CAMERA_URL=${ROVER_CAMERA_URL:-http://192.168.3.128:81/stream}
       - CAMERA_FRAME_ID=camera_link
-      - CAMERA_INFO_YAML=/opt/fleet/config/rover_cam_info.yaml
+      - CAMERA_INFO_YAML=/opt/fleet/config/rover_cam_info_xga.yaml
       - CAMERA_PUBLISH_RAW=0
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
@@ -285,6 +290,72 @@ services:
     restart: unless-stopped
 
   # Monocular metric depth (Depth Anything V2 Metric-Indoor-Small) on the RTX 2060.
+  # Person following (YOLO11s + ByteTrack). Not started by default. Dry-run: publishes /rover/follow/cmd,
+  # /rover/follow/status, /rover/follow/debug/compressed only, never /cmd_vel.
+  # Start dry-run: docker compose --profile follow up -d rover-follow     Real drive: ./follow.sh (allow_drive + cleanup)
+  rover-follow:
+    build:
+      context: .
+      dockerfile: Dockerfile.follow
+    image: rover-follow:jazzy
+    container_name: rover-follow
+    profiles: ["follow"]
+    network_mode: host
+    runtime: nvidia
+    volumes:
+      - .:/opt/fleet:ro
+      - ./captures:/captures
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - FOLLOW_DRY_RUN=${FOLLOW_DRY_RUN:-1}
+      - FOLLOW_MAX_S=${FOLLOW_MAX_S:-1000000}
+      - FOLLOW_MODEL=/weights/yolo11s.pt
+      - FOLLOW_PITCH_DEG=-0.2   # off-rug live check 14:44 2026-10-22 (1.3 was on the rug)
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/person_follow.py"
+    restart: "no"
+
+  # Rover's ONE always-on behaviour: EXPLORE <-> FOLLOW person. Sole owner of /cmd_vel + /rover/session.
+  # Driving is enabled ONLY by allow_drive (HA switch / MQTT lab/robots/allow_drive/set ON|OFF, retained);
+  # with allow_drive OFF it runs fully and publishes what it would do on /rover/behaviour/{status,cmd}.
+  rover-behaviour:
+    image: rover-follow:jazzy
+    container_name: rover-behaviour
+    network_mode: host
+    runtime: nvidia
+    depends_on:
+      - microros-agent
+      - rover-brain
+    volumes:
+      - .:/opt/fleet:ro
+      - ./captures:/captures
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - FOLLOW_MODEL=/weights/yolo11s.pt
+      - FOLLOW_PITCH_DEG=-0.2
+      - FOLLOW_VMAX=0.20
+      - FOLLOW_WMAX=0.07
+      - FOLLOW_CONF=0.30
+      - EXPLORE_WMAX=0.06
+      - FOLLOW_STOP_DIST=0.30
+      - FOLLOW_SLOW_FROM=0.50
+      - FOLLOW_TARGET_M=1.0
+      - BEHAVIOUR_ENTER_S=0.5
+      - BEHAVIOUR_EXIT_S=5.0
+      - TAG_SIZE_M=0.10          # tag36h11, tags_100mm.pdf
+      - EXPLORE_ESCAPE_V=0.12
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/rover_behaviour.py --search-after 1.5 --search-max-s 3.0 --kw 0.15 --kv 0.40 --dv 0.30"
+    restart: unless-stopped
+
   # Start: docker compose --profile slam up -d rover-depth   (DEPTH_L8_SCALE=1 enables L8 scale correction)
   rover-depth:
     build:
@@ -303,7 +374,7 @@ services:
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - DEPTH_L8_SCALE=${ROVER_DEPTH_L8_SCALE:-0}
+      - DEPTH_L8_SCALE=${ROVER_DEPTH_L8_SCALE:-1}
       - DEPTH_SAMPLE_PATH=/captures/depth_sample.png
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&

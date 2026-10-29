@@ -5,3 +5,12 @@ __pycache__/
 *.bak*
 mqtt_secrets.env
 .env
+
+# NUC secrets / data
+mqtt_secrets.env
+.env
+*.env
+!*.env.example
+captures/
+logs/
+*.log

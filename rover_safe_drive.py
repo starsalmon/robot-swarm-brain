@@ -7,6 +7,9 @@ All stop checks run on a fixed 20 Hz timer; callbacks only store the latest valu
 Stops on: tick target (either wheel), L8 min < --stop-dist (0.30), timeout, tick stall (>0.8 s with no
 new ticks after 1.2 s), stale sensors (L8 or ticks older than 0.5 s), or Ctrl-C. Always sends zero
 cmd_vel + session false x15 on exit. Refuses to start if L8 min (front + all columns) < --clear.
+Turns (--turn-deg): Rover coasts after the stop (~0.34 s x yaw rate, ~35-40 deg at 0.12 cmd, bag 2026-10-21),
+so the turn is cut when yaw + rate*--coast-tau reaches the target, then it waits for the gyro to settle and,
+if |error| > --corr-tol, runs up to --corr-max short slow correction turns with the same predictive stop.
 """
 import argparse, json, math, time
 import rclpy
@@ -31,7 +34,8 @@ class SafeDrive(Node):
                                  st("cols", lambda m: min([x for x in m.data if x > 0.02] or [9.0])), 10)
         self.create_subscription(UInt32, "/rover/wheel/left_ticks", st("tl", lambda m: m.data), 10)
         self.create_subscription(UInt32, "/rover/wheel/right_ticks", st("tr", lambda m: m.data), 10)
-        self.yaw = 0.0; self.gz_last = None
+        self.yaw = 0.0; self.gz_last = None; self.rate = 0.0
+        self.ncorr = 0; self.goal = 0.0; self.seg0 = 0.0; self.t_settle = 0.0; self.t_quiet = None
         self.create_subscription(Imu, "/imu/data", self.on_imu, 50)
         self.cmd = self.create_publisher(Twist, "/cmd_vel", 10)
         self.ses = self.create_publisher(Bool, "/rover/session", 10)
@@ -41,8 +45,9 @@ class SafeDrive(Node):
 
     def on_imu(self, m):
         now = time.monotonic()
-        if self.gz_last is not None and self.state == "drive":
+        if self.gz_last is not None and self.state in ("drive", "settle", "corr"):
             self.yaw += m.angular_velocity.z * (now - self.gz_last)
+        self.rate = 0.6 * self.rate + 0.4 * m.angular_velocity.z
         self.gz_last = now
 
     def fresh(self, now):
@@ -68,11 +73,13 @@ class SafeDrive(Node):
                     self.a.ticks = cap
                 if self.a.ticks < 10:
                     self.finish("SKIP: not enough clearance for >=10 ticks"); return
-            self.yaw = 0.0
+            self.yaw = 0.0; self.goal = math.radians(self.a.turn_deg); self.seg0 = 0.0
             self.t0 = now; self.tick0 = (self.v["tl"], self.v["tr"]); self.last_move = (0, now)
             self.start = dict(l8=self.v["l8"], cols=self.v["cols"], tl=self.v["tl"], tr=self.v["tr"])
             self.state = "drive"
-        if self.state != "drive":
+        if self.state == "settle":
+            self.settle_step(now); return
+        if self.state not in ("drive", "corr"):
             return
         el = now - self.t0
         dl, dr = self.v["tl"] - self.tick0[0], self.v["tr"] - self.tick0[1]
@@ -81,22 +88,56 @@ class SafeDrive(Node):
         why = None
         if not self.fresh(now): why = "stale sensor data"
         elif dl >= self.a.ticks or dr >= self.a.ticks: why = f"{self.a.ticks} ticks"
-        elif self.a.turn_deg and abs(math.degrees(self.yaw)) >= abs(self.a.turn_deg): why = f"IMU turn {math.degrees(self.yaw):+.1f} deg"
+        elif self.a.turn_deg and self.pred_reached():
+            self.cmd.publish(Twist()); self.state = "settle"; self.t_settle = now; self.t_quiet = None
+            self.log.append(dict(t=round(el, 3), ev="cut", yaw=round(math.degrees(self.yaw), 2), rate=round(self.rate, 3)))
+            return
         elif self.a.turn_deg and max(dl, dr) > 2.0 * abs(self.a.turn_deg) / 90 * 21: why = "turn tick backstop"
         elif self.a.turn_deg == 0 and self.l8min() < self.a.stop_dist: why = f"L8 min {self.l8min():.2f} < {self.a.stop_dist}"
         elif el > self.a.timeout: why = f"{self.a.timeout} s timeout"
-        elif el > 1.2 and now - self.last_move[1] > 0.8: why = "tick stall"
+        elif el > 1.2 and now - self.last_move[1] > 0.8 and now - self.t_settle > 1.2: why = "tick stall"
         if why:
             self.finish(why); return
         tw = Twist()
         if self.a.turn_deg:
-            w = min(self.a.wmax, 0.10 + (self.a.wmax - 0.10) * el / 0.8)
-            tw.angular.z = w if self.a.turn_deg > 0 else -w
+            if self.state == "corr":
+                w = self.a.corr_w
+                d = self.corr_dir
+                tw.angular.z = w * d
+            else:
+                w = min(self.a.wmax, 0.10 + (self.a.wmax - 0.10) * el / 0.8)
+                tw.angular.z = w if self.a.turn_deg > 0 else -w
         else:
             tw.linear.x = min(self.a.vmax, 0.05 + (self.a.vmax - 0.05) * el / 0.8)
         b = Bool(); b.data = True
         self.cmd.publish(tw); self.ses.publish(b)
         self.log.append(dict(t=round(el, 3), v=tw.linear.x, w=tw.angular.z, yaw=round(math.degrees(self.yaw), 2), dl=dl, dr=dr, l8=self.v["l8"], l8min=self.l8min()))
+
+    def pred_reached(self):
+        """Predictive cut: the segment's turned angle plus the expected coast reaches the segment goal."""
+        seg_goal = self.seg_goal if self.state == "corr" else self.goal
+        done = (self.yaw - self.seg0) + self.rate * self.a.coast_tau
+        return done * math.copysign(1, seg_goal) >= abs(seg_goal)
+
+    def settle_step(self, now):
+        self.cmd.publish(Twist())
+        if not self.fresh(now):
+            self.finish("stale sensor data (settle)"); return
+        if now - self.t0 > self.a.timeout + 3.0:
+            self.finish("timeout (settle)"); return
+        if abs(self.rate) < 0.05:
+            self.t_quiet = self.t_quiet or now
+        else:
+            self.t_quiet = None
+        if not (self.t_quiet and now - self.t_quiet > 0.3) and now - self.t_settle < self.a.settle_s:
+            return
+        err = self.goal - self.yaw
+        self.log.append(dict(t=round(now - self.t0, 3), ev="settled", yaw=round(math.degrees(self.yaw), 2), err=round(math.degrees(err), 2), ncorr=self.ncorr))
+        if abs(math.degrees(err)) > self.a.corr_tol and self.ncorr < self.a.corr_max:
+            self.ncorr += 1; self.state = "corr"; self.seg0 = self.yaw; self.seg_goal = err
+            self.corr_dir = 1.0 if err > 0 else -1.0; self.last_move = (self.last_move[0], now); self.t_settle = now
+            return
+        self.finish(f"IMU turn {math.degrees(self.yaw):+.1f} deg (err {math.degrees(err):+.1f}, {self.ncorr} corr)")
 
     def finish(self, why):
         self.stop_robot()
@@ -116,6 +157,10 @@ def main():
     ap.add_argument("--timeout", type=float, default=3.0)
     ap.add_argument("--turn-deg", type=float, default=0.0, help="in-place turn (+ = CCW/left) stopped by IMU yaw")
     ap.add_argument("--wmax", type=float, default=0.25); ap.add_argument("--log", default="/tmp/safe_drive.json")
+    ap.add_argument("--coast-tau", type=float, default=0.40, help="s; predicted coast = yaw rate x tau")
+    ap.add_argument("--settle-s", type=float, default=1.5, help="max wait for gyro to settle after a cut")
+    ap.add_argument("--corr-tol", type=float, default=5.0); ap.add_argument("--corr-max", type=int, default=0)
+    ap.add_argument("--corr-w", type=float, default=0.10, help="correction turn command (slowest that moves)")
     a = ap.parse_args()
     if a.vmax > 0.25 or a.wmax > 0.40: raise SystemExit("speed above the usable cap")
     rclpy.init(); n = SafeDrive(a)

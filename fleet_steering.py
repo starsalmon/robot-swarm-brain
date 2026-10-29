@@ -775,6 +775,14 @@ class WanderState:
                 msg.linear.x = 0.0
                 msg.angular.z = 0.0
                 return True
+            # Stall/trap: commanding a turn but gyro shows ~no rotation -> end turn, escalate trap.
+            stall_s = float(os.environ.get('TURN_STALL_SEC', '1.2'))
+            if elapsed >= stall_s and abs(delta) < float(os.environ.get('TURN_STALL_DEG', '4.0')):
+                self.turn_stalls = getattr(self, turn_stalls, 0) + 1
+                self._bump_trap(time.monotonic())
+                msg.linear.x = 0.0
+                msg.angular.z = 0.0
+                return True
 
         if self._wants_spin_avoid() and not self._avoid_too_close_for_spin():
             msg.linear.x = 0.0
