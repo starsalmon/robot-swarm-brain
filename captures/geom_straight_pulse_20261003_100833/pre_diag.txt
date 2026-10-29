@@ -1,0 +1,2 @@
+DIAG t=6602379 link=2 sess=0 cal=0 step=0 snaps=0 pan=90 rng=0.05 cmd=0.00,0.00 mot=0.00,0.00 bat=7.02 yaw=53.3 gz=-0.0 trim=0.000 az=0.93 tof=0.77,1.09 heap=158388 min_heap=154500 pan_stk=10588 ckpt=1
+2026-10-03T10:09:00.206784+00:00

@@ -1,0 +1,2 @@
+[INFO] [1790947449.324072987] [rover_brain]: explore reset — cruise 16%, steer max 0.18, escape bump/stall only
+[INFO] [1790947449.324813457] [rover_brain]: session START (Go tap) — explore

@@ -1,0 +1,1 @@
+{"recv_ts": 1790947431.938028, "recv_iso": "2026-10-02T13:23:51.938028+00:00", "src": "192.168.3.71:56724", "line": "DIAG t=41525 link=2 sess=0 cal=0 step=0 snaps=0 pan=90 rng=-1.00 cmd=0.00,0.00 mot=0.00,0.00 bat=7.09 yaw=-0.2 gz=-0.1 trim=0.000 az=0.92 tof=-1.00,-1.00 heap=173080 min_heap=160824 pan_stk=13956 ckpt=1"}

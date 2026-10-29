@@ -1,0 +1,3 @@
+CAP=/data/swarm/lego-rover-ros2/captures/testdrive_20261002_132352
+start_utc=2026-10-02T13:23:52Z
+Error response from daemon: Could not find the file /tmp/testdrive_bag in container rover-brain

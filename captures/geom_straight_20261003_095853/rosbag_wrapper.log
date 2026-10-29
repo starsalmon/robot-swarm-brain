@@ -1,0 +1,19 @@
+bash: line 3: cd: /data/swarm/lego-rover-ros2/captures/geom_straight_20261003_095853: No such file or directory
+[WARN] [ros2bag]: Positional "topics" argument deprecated. Please use optional "--topics" argument instead.
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1791021541.610304791] [rosbag2_recorder]: Press SPACE for pausing/resuming
+[INFO] [1791021541.610424910] [rosbag2_recorder]: Event publisher thread: Started
+[INFO] [1791021541.612968954] [rosbag2_recorder]: Starting recording to 'rosbag_straight'
+[INFO] [1791021541.613821429] [rosbag2_recorder]: Listening for topics...
+[INFO] [1791021541.613832638] [rosbag2_recorder]: Recording...
+[INFO] [1791021541.613925369] [rosbag2_recorder]: Topics discovery started.
+[INFO] [1791021542.412550067] [rosbag2_recorder]: Subscribed to topic '/imu/data'
+[INFO] [1791021542.414673229] [rosbag2_recorder]: Subscribed to topic '/rover/button'
+[INFO] [1791021542.416126511] [rosbag2_recorder]: Subscribed to topic '/rover/wheel/left_ticks'
+[INFO] [1791021542.417285955] [rosbag2_recorder]: Subscribed to topic '/rover/wheel/right_ticks'
+[INFO] [1791021543.964691023] [rosbag2_recorder]: Subscribed to topic '/cmd_vel'
+[INFO] [1791021543.964754170] [rosbag2_recorder]: All requested topics are subscribed. Stopping discovery...
+[INFO] [1791021543.964768124] [rosbag2_recorder]: Topics discovery stopped.
+[INFO] [1791021631.432129788] [rosbag2_recorder]: Pausing recording.
+[INFO] [1791021631.432237134] [rosbag2_cpp]: Writing remaining messages from cache to the bag. It may take a while
+[INFO] [1791021631.438007257] [rosbag2_recorder]: Recording stopped
+[INFO] [1791021631.445894411] [rosbag2_recorder]: Event publisher thread: Exited

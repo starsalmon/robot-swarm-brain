@@ -1,0 +1,31 @@
+{
+  "boots_tail": [
+    [
+      "2026-10-02T23:48:48.660699+00:00",
+      "BOOT_WIFI reset=software ckpt=1 arg=0"
+    ],
+    [
+      "2026-10-03T00:04:17.331598+00:00",
+      "BOOT_WIFI reset=power-on ckpt=1 arg=0"
+    ],
+    [
+      "2026-10-03T08:19:06.334840+00:00",
+      "BOOT_WIFI reset=power-on ckpt=1 arg=0"
+    ]
+  ],
+  "diag": {
+    "iso": "2026-10-03T09:58:54.210458+00:00",
+    "line": "DIAG t=5996479 link=2 sess=0 cal=0 step=0 snaps=0 pan=90 rng=-1.00 cmd=0.00,0.00 mot=0.00,0.00 bat=6.92 yaw=69.2 gz=-0.1 trim=0.000 az=0.91 tof=0.47,-1.00 heap=159244 min_heap=155548 pan_stk=10588 ckpt=1"
+  },
+  "parsed": {
+    "t_ms": 5996479,
+    "cmd_lin": 0.0,
+    "cmd_ang": 0.0,
+    "mot_l": 0.0,
+    "mot_r": 0.0,
+    "yaw": 69.2,
+    "gz": -0.1,
+    "tof_l": 0.47,
+    "tof_r": -1.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "start_utc": "2026-10-03T10:13:47.909894+00:00",
+  "stop_utc": "2026-10-03T10:14:01.910050+00:00",
+  "duration_s": 14.0,
+  "cmd_lin": 0.16,
+  "cmd_ang": 0.0,
+  "wl0": 232,
+  "wr0": 237,
+  "wl1": 273,
+  "wr1": 266,
+  "dL": 41,
+  "dR": 29,
+  "yaw_int_deg": 25.2,
+  "samples": 280,
+  "note": "session latched true for ESP motor gate; rover-brain stopped (no explore)"
+}

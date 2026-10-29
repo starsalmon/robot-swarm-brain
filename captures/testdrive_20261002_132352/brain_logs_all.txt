@@ -1,0 +1,15 @@
+[INFO] [1790947449.324072987] [rover_brain]: explore reset — cruise 16%, steer max 0.18, escape bump/stall only
+[INFO] [1790947449.324813457] [rover_brain]: session START (Go tap) — explore
+[INFO] [1790947460.708555554] [rover_brain]: wheel stall — straight cruise, ticks stopped
+[INFO] [1790947460.758023171] [rover_brain]: escape (stall): reverse → arc (IMU-limited)
+[INFO] [1790947460.759033126] [rover_brain]: memory: 315° blocked (stall, hit 1, travelled 1.83)
+[INFO] [1790947462.122575133] [rover_brain]: bump ignored — wheels still turning, nose not jammed
+[INFO] [1790947474.707688917] [rover_brain]: escape (stall): reverse → arc (IMU-limited)
+[INFO] [1790947474.708726309] [rover_brain]: memory: 315° blocked (stall, hit 2, travelled 1.99)
+[INFO] [1790947483.308037691] [rover_brain]: escape (stall): reverse → arc (IMU-limited)
+[INFO] [1790947483.309695243] [rover_brain]: memory: 315° blocked (stall, hit 3, travelled 0.81)
+[INFO] [1790947485.108491697] [rover_brain]: wheel stall — straight cruise, ticks stopped
+[INFO] [1790947493.959974956] [rover_brain]: session STOP (E-stop long)
+[INFO] [1790947500.081128032] [rover_brain]: explore reset — cruise 16%, steer max 0.18, escape bump/stall only
+[INFO] [1790947500.081864392] [rover_brain]: session START (Go tap) — explore
+[INFO] [1790947501.507083365] [rover_brain]: wheel stall — straight cruise, ticks stopped
