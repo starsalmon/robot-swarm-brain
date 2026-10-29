@@ -2,6 +2,9 @@
 #   docker compose up -d
 # Starts: agent + explore/chase brain + ROS CLI shell (no per-command containers).
 
+name: robot-fleet
+
+
 services:
   microros-agent:
     image: microros/micro-ros-agent:jazzy
