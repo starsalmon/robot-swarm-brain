@@ -69,6 +69,9 @@ def main():
             s.model = YOLO(MODEL); s.img = None; s.t_det = 0.0
             s.hist = deque(maxlen=WIN); s.last_said = {}; s.t_any = -1e9; s.n = 0
             s.q = deque(); s.qlock = threading.Lock(); s.wcount = None
+            s.nf = 0; s.raw = Counter(); s.why = "no frames yet"; s.t_img = 0.0; s.nfail = 0
+            s.pdbg = s.create_publisher(String, "/rover/speech/debug", 10)
+            s.create_timer(10.0, s.report)
             s.create_subscription(CompressedImage, "/rover/camera/image_raw/compressed", lambda m: setattr(s, "img", m), qos_profile_sensor_data)
             s.create_subscription(String, "/rover/speech/say", lambda m: s.say(m.data), 10)
             s.psaid = s.create_publisher(String, "/rover/speech/said", 10)
@@ -104,12 +107,17 @@ def main():
                             if not json.loads(cam_get("/sounds")).get("playing"): break
                         except Exception: break
                         time.sleep(0.25)
+                    s.nfail = 0
                 except Exception as e:
-                    s.get_logger().warning(f"say failed: {e}")
+                    s.nfail += 1
+                    s.get_logger().warning(f"say failed ({s.nfail}): {e}")
 
         def detect(s):
             m, s.img = s.img, None
-            if m is None: return
+            if m is None:
+                if time.monotonic() - s.t_img > 3.0: s.why = "no camera frames"
+                return
+            s.t_img = time.monotonic(); s.nf += 1
             img = cv2.imdecode(np.frombuffer(m.data, np.uint8), 1)
             if img is None: return
             H, W = img.shape[:2]
@@ -117,18 +125,29 @@ def main():
             best, barea = None, 0.0
             for b in r.boxes:
                 name = s.model.names[int(b.cls)]
-                if name in SKIP: continue
                 x1, y1, x2, y2 = b.xyxy[0].tolist()
                 area = (x2 - x1) * (y2 - y1) / (W * H)
+                s.raw[f"{name}{'(skip)' if name in SKIP else ('' if area >= MIN_AREA else '(small)')}"] += 1
+                if name in SKIP: continue
                 if area >= MIN_AREA and area > barea: best, barea = name, area
             s.hist.append(best)
             top, cnt = Counter(x for x in s.hist if x).most_common(1)[0] if any(s.hist) else (None, 0)
-            if top is None or cnt < NEED: return
+            if top is None or cnt < NEED:
+                s.why = "nothing held up" if top is None else f"{top} only {cnt}/{len(s.hist)} frames"
+                return
             now = time.monotonic()
-            if now - s.t_any < ANY_S or now - s.last_said.get(top, -1e9) < SAME_S: return
+            if now - s.t_any < ANY_S or now - s.last_said.get(top, -1e9) < SAME_S:
+                s.why = f"{top}: cooldown"; return
+            s.why = f"saying {top}"
             s.t_any = now; s.last_said[top] = now
             o = String(); o.data = top; s.pseen.publish(o)
             s.say(phrase(top))
+
+        def report(s):
+            seen = ", ".join(f"{k} x{v}" for k, v in s.raw.most_common(5)) or "nothing"
+            txt = f"{s.nf} frames/10s; seen: {seen}; now: {s.why}; queue {len(s.q)}"
+            s.get_logger().info(txt); m = String(); m.data = txt; s.pdbg.publish(m)
+            s.nf = 0; s.raw.clear()
 
         def poll_whistle(s):
             try:
