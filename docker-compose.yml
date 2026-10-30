@@ -268,6 +268,26 @@ services:
       exec python3 /opt/fleet/rover_camera_bridge.py"
     restart: unless-stopped
 
+  # Rover AI-cam light sensor -> /rover/light/lux (Float32) + /rover/light/night (Bool).
+  # Same "camera" profile as rover-camera (off by default):
+  #   docker compose --profile camera up -d rover-light
+  rover-light:
+    image: ros:jazzy-ros-base
+    container_name: rover-light
+    profiles: ["camera"]
+    network_mode: host
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - ROVER_STATUS_URL=${ROVER_STATUS_URL:-http://192.168.3.128/status}
+      - ROVER_LIGHT_PERIOD=1.0
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/rover_light_bridge.py"
+    restart: unless-stopped
+
   # Wheel odometry + IMU restamp + static TFs + robot_localization EKF (odom->base_link).
   # Start: docker compose --profile slam up -d rover-odom   (frames/offsets: config/rover_frames.yaml)
   rover-odom:
