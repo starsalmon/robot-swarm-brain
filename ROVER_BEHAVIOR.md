@@ -1,55 +1,45 @@
-# Rover behaviour — explore (current)
+# Rover behaviour (current)
 
-Explore runs in the `rover-brain` container on the NUC brain (`/data/swarm/robot-swarm-brain`: `rover_brain.py`, `explore_controller.py`, `rover_proximity.py`, `rover_wheel_odom.py`). The drive board executes `/cmd_vel` and enforces local safety. All speeds below are **usable %** (cmd value × 100).
+`rover-behaviour` (`rover_behaviour.py`, NUC brain, image `rover-follow:jazzy`, GPU) is the only publisher of `/cmd_vel` and `/rover/session`. `rover-brain` still runs, but its explore output goes to `/rover/explore/cmd_vel` and nothing drives from it. All speeds are **usable power** (cmd value x 100 = % usable, cap 25%).
 
 ## Starting and stopping
 
 | Input | Effect |
 |-------|--------|
-| `allow_drive` (MQTT `lab/robots/allow_drive/set` ON/OFF → `/fleet/allow_drive`) | Master gate. OFF stops an active session and makes Go taps ignored. |
-| **Go tap** (`/rover/button` true) | Toggles the session (START / STOP). |
-| **E-stop long** (`/rover/button_event` 3) | Stops the session. E-stop hold also cuts motors on the ESP. |
-| Mode menu (`/rover/drive_mode`) | Explore or Wall; changing mode stops the session. |
+| `allow_drive` (MQTT `lab/robots/allow_drive/set` -> `/fleet/allow_drive`) | Master gate. OFF stops the session; Go taps are ignored. |
+| **Go tap** (`/rover/button` true) | Toggles the session. |
+| **E-stop long** (`/rover/button_event` 3) | Stops the session (ESP also cuts motors). |
 
-Session state is published on `/rover/session`; the drive board only drives while it is true and `/cmd_vel` is fresh (400 ms timeout).
+The drive board only drives while `/rover/session` is true and `/cmd_vel` is fresh (400 ms).
 
-## Speed limits (docker-compose env)
+## Priority (highest first)
 
-| Env | Value | Meaning |
-|-----|-------|---------|
-| `ROVER_AUTO_MAX_LINEAR` | 0.25 | Forward cap, 25% usable |
-| `ROVER_AUTO_BURST_MAX` | 0.25 | Burst cap (same as forward) |
-| `ROVER_AUTO_REVERSE_POWER` | 0.10 | Reverse, 10% usable |
-| `ROVER_AUTO_MAX_ANGULAR` | 0.18 | Turn cap |
+1. **ORANGE** - a real orange fruit is confirmed by a camera:
+   - Rover camera: YOLO11s COCO class 49 (the fruit, conf >= `ORANGE_CONF` 0.40), run in the same pass as person detection.
+   - LifeCam (`room-eye`): the same detector at 1280 px; the room-eye path is used only while it also sees Rover.
+   - Either one needs the orange in **4 of the last 6 frames** at a consistent spot and roundish shape (`orange_vote.py`). Orange-coloured tubs, boxes and toys are not the class and are ignored.
+   - It drives at 16% usable, dropping to 11% then 7% as it gets close, and steers toward the orange. At 5 cm or less it stops and plays the tune.
+2. **FOLLOW** - a person (COCO class 0, ByteTrack) is held for `BEHAVIOUR_ENTER_S` 0.5 s:
+   - Uses the proven `person_follow.Follower` at up to `FOLLOW_VMAX` 22% usable (explore cruise is 18%), with turns up to 10%.
+   - Keeps `FOLLOW_TARGET_M` 1.0 m: it slows from 0.50 m and stops at 0.30 m.
+   - Returns to explore after the person has been lost for 5 s.
+   - While a person is only a candidate, explore continues at 60% speed rather than stopping.
+3. **EXPLORE** - `rover_explore.py`, continuous steering:
+   - **Inputs:** the 8 L8 columns (column 0 = left) plus the front, front_left, front_right, left and right ToF. If none is fresh it stops.
+   - **Speed:** `EXPLORE_CRUISE` 18% in the open. Speed scales down with the clearance ahead from 0.9 m, to at least 8%.
+   - **Steering:** it is pulled toward the most open direction and pushed off side walls closer than 0.30 m, at up to `EXPLORE_WMAX` 12%. When heading at a wall it commits early to one turn direction. A slow random wander makes it curve in open space instead of driving dead straight.
+   - **Blocked** (under 0.25 m ahead): it spins on the spot toward the more open side at `EXPLORE_PIVOT_W` 14%, with hysteresis so it does not flip-flop.
+   - **Bump / stall backup** (`/rover/bump`, `/rover/stall`): it reverses at 14% for 0.6 s, then spins toward the open side for 0.9-3 s, then carries on exploring. It never just stops.
 
-Slew: linear +0.32/s (brake 0.18/s), angular 0.22/s (brake 0.14/s). In cruise modes angular is also clamped to `0.08 + |lin| × 1.35` so slow turns stay arcs, not spins.
+A final safety check stops forward motion into anything under 0.20 m, unless that thing is the centred orange being approached.
 
-## Drive modes
+Status JSON is published on `/rover/behaviour/status`. It includes the state, the reason, v/w, nfruit, orange_cam and orange_room.
 
-While no obstacle needs handling the controller rolls between **cruise** (≈70%, 4–8 s), **wander** (≈30%, 3–5 s) and a rare **burst** (1% chance, 0.8–1.2 s). After an escape it holds straight cruise for 5–9 s.
+## Offline tests
 
-## Picture (`ROVER_PICTURE=1`)
-
-Inputs: the 8 L8 columns plus front/front_left/front_right (`/rover/tof/*`, Pro S3) and the left/right side ToF.
-
-- **Floor baseline:** L8 returns near the floor distance are ignored as floor. The baseline is seeded at **0.18 m** and locks within 0.15–0.24 m. A return 0.03 m inside the baseline counts as an obstacle.
-- **Stale:** no fresh front data for 3.2 s or side data for 2.5 s → stop (`picture stale`).
-- **Side veto:** never turn toward a side whose ToF reads under 0.20 m.
-
-### Steer-around (`ROVER_PICTURE_STEER_AROUND`, default on)
-
-- **Far** (nose clear past `ROVER_PICTURE_STEER_FAR_M` = **1.10 m**): cruise, with a held heading commit (2.5 s / 0.70 m) toward the open side.
-- **Near / close** (closest front return under 1.10 m): keep rolling forward. Speed drops linearly toward `cruise × (1 − ROVER_PICTURE_STEER_SLOW)` (0.80 → down to 20% of cruise, never below 6% usable). Turn rate grows from 0.04 to 0.18 as the distance shrinks toward the box distance.
-- **Gap side:** compares left vs right openness (L8 half + that hip's side ToF × 1.5). Switches only when the other side is better by `ROVER_PICTURE_GAP_HYST_M` = **0.15 m** and the current side has been held ≥ 0.8 s.
-- **Hip close, nose clear:** keep going at 70% of cruise and peel off the wall.
-- **Boxed:** both L8 halves under `ROVER_PICTURE_BOX_M` = **0.20 m** → reverse at 8% usable while turning toward the open side, until either half clears `ROVER_PICTURE_BOX_EXIT_M` = **0.30 m**.
-
-## Bump / stall backup
-
-- **Bump:** IMU jerk on the drive board → `/rover/bump`.
-- **Stall:** drive board (IMU + wheel ticks, motors cut ~2.5 s, `/rover/stall`) and brain wheel odometry (straight cruise, ticks stopped; grace 900 ms, cooldown 5 s).
-- Either triggers an **escape**: reverse 1.0 s at 10% usable, then an IMU-limited arc of 20–35° toward the gap, then straight cruise. Max 3 escapes per minute, then a 10 s pause.
-- **Recover:** if the picture says the nose is blocked while the wheels aren't moving (< 0.06 m travel), reverse, scan and drive out toward the best opening.
+- `tools/test_orange_offline.py img...` runs the old HSV finder against YOLO + vote on still images.
+- `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
+- `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 
 ## Drive-board safety (wins over the brain)
 

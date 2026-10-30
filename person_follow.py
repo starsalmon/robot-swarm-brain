@@ -19,6 +19,7 @@ import numpy as np, cv2
 
 E = lambda k, d: type(d)(os.environ.get(k, d))
 CAP = 0.25
+ORANGE_CONF = E("ORANGE_CONF", 0.40)   # COCO "orange" (class 49) min confidence
 
 
 def load_cal(path):
@@ -42,7 +43,7 @@ class Follower:
         self.t_front = -1e9; self.bdot = 0.0; self.t_b = None; self.rear = None; self.t_rear = -1e9; self.servo_req = None   # rear sonar (Range, NaN = no echo) + servo request
         self.target = None; self.t_seen = -1e9; self.cand = {}; self.dist = None; self.dsrc = "-"
         self.dl8 = self.dpl = None; self.plsrc = '-'
-        self.cmd = (0.0, 0.0); self.raw = (0.0, 0.0); self.t_raw = -1e9; self.t_ctl = 0.0; self.why = "searching"; self.dets = []; self.t_img = 0.0
+        self.cmd = (0.0, 0.0); self.raw = (0.0, 0.0); self.t_raw = -1e9; self.t_ctl = 0.0; self.why = "searching"; self.dets = []; self.fruit = []; self.t_img = 0.0
 
     # ---- geometry ----
     def undist(self, u, v):
@@ -87,12 +88,18 @@ class Follower:
         if img.shape[1] != self.W:               # older QVGA bags: scale the XGA intrinsics
             k = img.shape[1] / self.W
             self.K = self.K.copy(); self.K[:2] *= k; self.W, self.H = img.shape[1], img.shape[0]
-        r = self.model.track(img, persist=True, classes=[0], conf=self.a.conf, imgsz=self.a.imgsz,
+        # One YOLO pass for both COCO classes: 0 = person (followed), 49 = orange (the fruit, not orange paint).
+        r = self.model.track(img, persist=True, classes=[0, 49], conf=min(self.a.conf, ORANGE_CONF), imgsz=self.a.imgsz,
                              tracker="bytetrack.yaml", half=True, verbose=False)[0]
-        self.dets = []
-        if r.boxes is not None and r.boxes.id is not None:
-            for b, i, c in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.id.int().cpu().numpy(), r.boxes.conf.cpu().numpy()):
-                self.dets.append((int(i), *map(float, b), float(c)))
+        self.dets = []; self.fruit = []
+        if r.boxes is not None and len(r.boxes):
+            cls = r.boxes.cls.int().cpu().numpy(); cf = r.boxes.conf.cpu().numpy(); xy = r.boxes.xyxy.cpu().numpy()
+            ids = r.boxes.id.int().cpu().numpy() if r.boxes.id is not None else [-1] * len(cls)
+            for b, i, c, k in zip(xy, ids, cf, cls):
+                if k == 49 and c >= ORANGE_CONF:
+                    self.fruit.append((*map(float, b), float(c)))
+                elif k == 0 and c >= self.a.conf and i >= 0:
+                    self.dets.append((int(i), *map(float, b), float(c)))
         ids = {d[0]: d for d in self.dets}
         if self.target is None or (now - self.t_seen > self.a.lost_s and self.target not in ids):
             if self.target is not None and now - self.t_seen > self.a.lost_s:
@@ -336,7 +343,7 @@ def offline(a):
             img = cv2.imdecode(np.frombuffer(deserialize_message(d, ty[t]).data, np.uint8), 1)
             t0 = time.perf_counter(); f.on_image(img, now); tdet.append(time.perf_counter() - t0)
             f.control(now)
-            rows.append(dict(t=round(now, 3), n=len(f.dets), ids=[x[0] for x in f.dets], tgt=f.target,
+            rows.append(dict(t=round(now, 3), n=len(f.dets), nf=len(f.fruit), ids=[x[0] for x in f.dets], tgt=f.target,
                              dist=None if f.dist is None else round(f.dist, 3), src=f.dsrc, l8=f.dl8, pl=f.dpl, pls=f.plsrc, v=f.cmd[0], w=f.cmd[1], why=f.why))
             o = f.annotate(img)
             if vw is None:
@@ -347,7 +354,7 @@ def offline(a):
     if vw: vw.release()
     json.dump(rows, open(os.path.join(a.out, "log.json"), "w"))
     td = sorted(tdet[5:]) or [0]
-    print(f"frames {len(rows)}  with person {sum(1 for x in rows if x['n'])}  ids {sorted({i for x in rows for i in x['ids']})}"
+    print(f"frames {len(rows)}  with person {sum(1 for x in rows if x['n'])}  with orange {sum(1 for x in rows if x['nf'])}  ids {sorted({i for x in rows for i in x['ids']})}"
           f"  det+track ms median {1000 * td[len(td) // 2]:.1f} p95 {1000 * td[int(len(td) * .95)]:.1f}")
 
 

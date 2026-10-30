@@ -343,17 +343,19 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - FOLLOW_MODEL=/weights/yolo11s.pt
       - FOLLOW_PITCH_DEG=-0.2
-      - FOLLOW_VMAX=0.20
-      - FOLLOW_WMAX=0.07
+      - FOLLOW_VMAX=0.22          # follow a bit quicker than explore cruise
+      - FOLLOW_WMAX=0.10
       - FOLLOW_CONF=0.30
-      - EXPLORE_WMAX=0.06
+      - ORANGE_CONF=0.40          # YOLO COCO class 49 (the fruit), plus a 4-of-6 frame vote
+      - EXPLORE_CRUISE=0.18
+      - EXPLORE_WMAX=0.12
+      - EXPLORE_PIVOT_W=0.14
       - FOLLOW_STOP_DIST=0.30
       - FOLLOW_SLOW_FROM=0.50
       - FOLLOW_TARGET_M=1.0
       - BEHAVIOUR_ENTER_S=0.5
       - BEHAVIOUR_EXIT_S=5.0
       - TAG_SIZE_M=0.10          # tag36h11, tags_100mm.pdf
-      - EXPLORE_ESCAPE_V=0.12
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
       exec python3 /opt/fleet/rover_behaviour.py --search-after 1.5 --search-max-s 3.0 --kw 0.15 --kv 0.40 --dv 0.30"
@@ -390,6 +392,7 @@ services:
     image: rover-follow:jazzy
     container_name: room-eye
     network_mode: host
+    runtime: nvidia
     devices:
       - /dev/video0:/dev/video0
     volumes:
@@ -397,6 +400,10 @@ services:
       - /tmp:/tmp
     environment:
       - ROS_DOMAIN_ID=0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - ROOM_ORANGE_MODEL=/weights/yolo11s.pt
+      - ORANGE_CONF=0.40
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
     command: >
       bash -lc "source /opt/ros/jazzy/setup.bash && python3 -u /opt/fleet/room_eye.py"

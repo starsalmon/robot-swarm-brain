@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overhead LifeCam on the brain. Finds the rover and the orange on the carpet.
+"""Overhead LifeCam on the brain. Finds the rover and the orange (fruit, YOLO COCO class 49, 4-of-6 frame vote) on the carpet.
 
 Publishes /room/overhead as 7 floats, pixels:
   rover_x, rover_y, rover_w, rover_h, orange_x, orange_y, orange_radius
@@ -7,7 +7,11 @@ A 0 means that object was not seen this frame.
 Also publishes the live picture on /room/lifecam/image_raw/compressed (~4 Hz, 960x540 JPEG)
 for the web view (room-cam-web, port 8090).
 """
+import os
+import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import cv2
 import numpy as np
@@ -16,30 +20,34 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float32MultiArray
 
+from orange_vote import OrangeVote
 
-def find_orange(hsv):
-    mask = cv2.inRange(hsv, (5, 90, 90), (22, 255, 255))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best = None
-    for c in cnts:
-        area = cv2.contourArea(c)
-        if area < 200 or area > 4000:
-            continue
-        peri = cv2.arcLength(c, True)
-        circ = 4 * np.pi * area / max(peri * peri, 1)
-        if circ < 0.55:
-            continue
-        score = circ * min(area, 1600)
-        if best is None or score > best[0]:
-            M = cv2.moments(c)
-            if M["m00"] < 1:
-                continue
-            x, y, bw, bh = cv2.boundingRect(c)
-            best = (score, M["m10"] / M["m00"], M["m01"] / M["m00"], 0.5 * max(bw, bh))
-    if best is None:
-        return None
-    return best[1], best[2], best[3]
+MODEL = os.environ.get("ROOM_ORANGE_MODEL", "/weights/yolo11s.pt")
+CONF = float(os.environ.get("ORANGE_CONF", "0.40"))
+
+
+class OrangeFinder:
+    """The orange FRUIT, not orange-coloured things: YOLO11 COCO class 49 ('orange'), then a 4-of-6 frame vote
+    (orange_vote.OrangeVote). Replaces the old HSV blob finder that latched onto tubs and boxes."""
+
+    def __init__(self, model_path, conf):
+        from ultralytics import YOLO
+        import torch
+        self.dev = 0 if torch.cuda.is_available() else "cpu"
+        self.model = YOLO(model_path)
+        self.conf = conf
+        self.vote = OrangeVote(need=4, window=6, max_jump=0.08)
+        self.raw = []
+
+    def __call__(self, frame):
+        h, w = frame.shape[:2]
+        r = self.model.predict(frame, classes=[49], conf=self.conf, imgsz=1280, device=self.dev,
+                               half=self.dev != "cpu", verbose=False)[0]
+        self.raw = [(*map(float, b), float(c)) for b, c in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.conf.cpu().numpy())]
+        hit = self.vote.update(self.raw, w, h)
+        if hit is None:
+            return None
+        return hit["cx"] * w, hit["cy"] * h, hit["r"] * w
 
 
 def rover_candidates(hsv, orange_xy):
@@ -80,8 +88,9 @@ class Eye(Node):
         self.last_rover = None
         self.img_pub = self.create_publisher(CompressedImage, "/room/lifecam/image_raw/compressed", 2)
         self.n = 0
+        self.orange = OrangeFinder(MODEL, CONF)
         self.create_timer(0.12, self.tick)
-        self.get_logger().info("room eye up, LifeCam /dev/video0")
+        self.get_logger().info(f"room eye up, LifeCam /dev/video0, orange = YOLO class 49 on {self.orange.dev}")
 
     def camera(self):
         if self.cap is not None and self.cap.isOpened():
@@ -123,7 +132,7 @@ class Eye(Node):
                 im.data = jpg.tobytes()
                 self.img_pub.publish(im)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        orange = find_orange(hsv)
+        orange = self.orange(frame)
         cands = rover_candidates(hsv, orange[:2] if orange else None)
         rover = None
         if cands:
@@ -154,7 +163,8 @@ class Eye(Node):
         now = time.monotonic()
         if now - self.last_dbg > 2.0:
             self.last_dbg = now
-            vis = frame
+            cv2.imwrite("/tmp/room_eye_raw.jpg", frame)
+            vis = frame.copy()
             if rover:
                 _, cx, cy, bw, bh = rover
                 cv2.rectangle(vis, (int(cx - bw / 2), int(cy - bh / 2)), (int(cx + bw / 2), int(cy + bh / 2)), (255, 80, 0), 2)
