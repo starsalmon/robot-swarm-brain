@@ -23,8 +23,8 @@ alwaysApply: true
 
 - **NUC brain** `192.168.3.172` = ROS 2 Jazzy in Docker (`/data/swarm/robot-swarm-brain`) + one micro-ROS agent UDP **8888**.
 - Each bot = **thin ESP client** (motors/servos, sensors, local safety, WiFi micro-ROS).
-- **0** Rover (`/rover/…`), **1** Roby (`/bot1/…`), **2** Tracker (`/bot2/…`), **4** Beaper (name only, no hardware spec).
-- Planned, no fleet ID yet: **Beeper Baby**, **Jazz**. Details and open items are in `lego-rover-ros2/ROADMAP.md`. Beeper Baby is not Beaper unless Cain says they are the same robot.
+- **0** Rover (`/rover/…`), **1** Roby (`/bot1/…`), **2** Tracker (`/bot2/…`), **3** Beeper = Beaper = Beeper Baby (`/bot3/…`, repo `starsalmon/beeper`; older docs said 4).
+- Planned, no fleet ID yet: **Jazz**. Details and open items are in `lego-rover-ros2/ROADMAP.md`. Beeper Baby is not Beaper unless Cain says they are the same robot.
 
 ## Key docs (read before guessing pins or architecture)
 

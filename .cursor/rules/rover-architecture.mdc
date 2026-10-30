@@ -16,7 +16,7 @@ alwaysApply: true
 | **Rover** (LEGO, dual-board) | 0 | `rover-brain` | Thin clients — drive board + ToF board | `/rover/…`, `/imu/data`, `/cmd_vel` |
 | **Roby** (c3-mini) | 1 | `fleet-brain` | Thin client — servos, sonar pan, IMU, IR | `/bot1/…` |
 | **Tracker** | 2 | `tracked-brain` | Thin client — tracked drive | `/bot2/…` |
-| **Beaper** | 4 | — | WIP | — |
+| **Beeper** (Beaper / Beeper Baby) | 3 (Cain's list; older docs said 4, confirm) | `/bot3` | WIP, firmware builds, not wired | `starsalmon/beeper` |
 
 - **One micro-ROS agent** on the brain (UDP **8888**), multiplexes all ESP clients.
 - **One `cmd_vel` publisher per bot** at a time.
@@ -90,6 +90,6 @@ Features belong **in the robot** (firmware + always-on brain), triggered by **Go
 Full brief, including what is still unset: `ROADMAP.md`. Do not invent pins, fleet IDs, or parts past that file.
 
 - **Rover camera mapping** — DFRobot ESP32-S3 AI Camera as a third ESP node, then RTAB-Map, Nav2, explore_lite. Ingest code exists. Camera is not mounted.
-- **Beeper Baby** — modified beeper-bot chassis, FireBeetle 2, DRV8835, N20s with hall wheel sensors, front ToF and IR camera, 1200 mAh LiPo. No fleet ID. Not the same record as Beaper (ID 4) until Cain says so. Candidate dock prototype only.
+- **Beeper Baby** — modified beeper-bot chassis, FireBeetle 2, DRV8835, N20s with hall wheel sensors, front ToF and IR camera, 1200 mAh LiPo. Same robot as Beaper (Cain, 2026-10-30). Fleet ID 3, ns /bot3, repo starsalmon/beeper (WIRING.md). Candidate dock prototype only.
 - **Jazz (Smooth Jazz)** — legs. 3S LiPo, 2208 BLDC direct drive in the wheels, SimpleFOC Mini, two servo extendable legs, Pro S3 for the robot, Pi Zero 2 W + Camera Module 3 Wide streaming to the brain and doing nothing else. No fleet ID. Jumping is an open question, not a feature.
 - **Every bot** — IMU and IR TX/RX. One shared charging dock eventually (magnets and springs are only the current idea). Low-charge negotiation and IR recognition of each other. Rover, Roby, and Tracker already have IMU and fleet IR ids 0, 1, and 2.

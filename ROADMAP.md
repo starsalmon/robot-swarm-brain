@@ -16,7 +16,7 @@ These are in the repos today. They are not part of the new-bot brief.
 
 IR identity that already exists: `fleet_ir_proto.h` (copied in the rover, mini, and tracked firmware). 38 kHz frames. The receiver counts bursts and gets a peer id. Named constants are rover 0, mini 1, tracked 2. `FLEET_IR_MAX_ID` is 7. No other id is assigned.
 
-**Beaper** is fleet ID 4 in the architecture notes only. There is no repo, wiring, IR-id constant, or parts list for it. Cain has not said that Beaper and Beeper Baby are the same robot. Keep them separate until he does.
+**Beaper = Beeper Baby = Beeper** (Cain, 2026-10-30). Fleet ID 3 (`/bot3`), repo `starsalmon/beeper` with WIRING.md. Older notes said ID 4; awaiting Cain's confirmation.
 
 Low battery on the bots that have it is a local cutoff or a published voltage. Nothing in the repos negotiates a charger.
 
