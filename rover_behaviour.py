@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import person_follow as PF
 from orange_vote import OrangeVote
 from rover_explore import Explorer
+from cam_gate import CamGate
 
 E = PF.E
 
@@ -47,7 +48,7 @@ def main():
     class B(Node):
         def __init__(s):
             super().__init__("rover_behaviour")
-            s.f = PF.Follower(a); s.img = None; s.x = Explorer(); s.vote = OrangeVote(need=4, window=6)
+            s.f = PF.Follower(a); s.img = None; s.x = Explorer(); s.vote = OrangeVote(need=4, window=6); s.gate = CamGate(enter_s=enter_s)
             s.orange_blob = None; s.orange_t = -1e9; s.orange_miss = None
             s.arrived = False; s.celebrated = False; s.song = None; s.song_i = 0
             s.ov = 0.0; s.ow = 0.0; s.go = False
@@ -308,6 +309,7 @@ def main():
             if m is None: return
             img = PF.cv2.imdecode(PF.np.frombuffer(m.data, PF.np.uint8), 1)
             now = time.monotonic(); s.f.on_image(img, now); s.nimg += 1
+            s.gate.on_frame(now, s.f.target is not None and s.f.t_seen >= now - 1e-6)
             hit = s.vote.update(s.f.fruit, img.shape[1], img.shape[0])
             if hit:
                 s.orange_blob = hit; s.orange_t = now
@@ -349,11 +351,16 @@ def main():
                 if s.orange_miss is None: s.orange_miss = now
                 if now - s.orange_miss > (3.0 if s.arrived else 1.5):
                     s.goto("EXPLORE", "orange done" if s.arrived else "orange lost")
-            seen = f.target is not None and now - f.t_seen < 0.3
-            s.tgt_since = (s.tgt_since or now) if seen else None
-            if s.state == "EXPLORE" and s.tgt_since is not None and now - s.tgt_since >= enter_s:
+            cam_live = s.gate.live(now)
+            if not cam_live and (f.target is not None or f.dets or f.fruit):
+                f.target = None; f.dets = []; f.fruit = []            # nothing from a silent camera counts
+            cand, confirmed = s.gate.person(now)
+            s.tgt_since = (s.tgt_since or now) if cand else None
+            if s.state == "EXPLORE" and confirmed:
                 s.goto("FOLLOW", "person in view")
-            elif s.state == "FOLLOW" and f.bo is None and now - f.t_seen > exit_s:
+            elif s.state == "FOLLOW" and not cam_live:
+                s.goto("EXPLORE", "camera stale")
+            elif s.state == "FOLLOW" and now - f.t_seen > exit_s and (f.bo is None or now - f.t_seen > exit_s + 4.0):
                 s.goto("EXPLORE", f"person lost {now - f.t_seen:.1f}s")
             if s.state == "ORANGE":
                 if cam_orange or s.arrived:
@@ -389,7 +396,7 @@ def main():
             st = String(); st.data = json.dumps(dict(t=time.time(), state=s.state, allow=s.allow, go=s.go, v=round(s.cmd[0], 3), w=round(s.cmd[1], 3),
                         why=why, tgt=f.target, ndet=len(f.dets), nfruit=len(f.fruit), orange_cam=ob, orange_room=room_orange,
                         dist=None if f.dist is None else round(f.dist, 2), bearing_deg=round(math.degrees(f.bearing), 1),
-                        age=round(min(9.0, now - f.t_seen), 2), cam_age=round(min(99.0, now - f.t_img), 1), tags=[t["id"] for t in s.tag_vis],
+                        age=round(min(9.0, now - f.t_seen), 2), cam_age=round(min(99.0, now - f.t_img), 1), cam_live=cam_live, tags=[t["id"] for t in s.tag_vis],
                         yaw_deg=None if s.yaw is None else round(math.degrees(s.yaw)), path_m=round(s.path, 2)))
             s.pst.publish(st)
 
