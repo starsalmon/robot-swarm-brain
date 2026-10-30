@@ -104,9 +104,9 @@ def main():
         def on_grid(s, m): s.f.l8 = PF.np.array(m.data, float).reshape(8, 8) / 1000.0; s.f.t_l8 = time.monotonic()
 
         def on_room(s, m):
-            if len(m.data) >= 7:
+            if len(m.data) >= 8:                               # 8th field = Rover track confirmed by motion (room_eye/rover_track.py)
                 s.room = [float(x) for x in m.data[:7]]
-                if s.room[0] >= 1 and s.room[4] >= 1:         # overhead counts only when it sees BOTH Rover and a voted orange
+                if m.data[7] >= 1 and s.room[0] >= 1 and s.room[4] >= 1:   # only a CONFIRMED Rover + a voted orange counts
                     s.room_t = time.monotonic()
 
         def on_odom(s, m):

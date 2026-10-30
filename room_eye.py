@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Overhead LifeCam on the brain. Finds the rover and the orange (fruit, YOLO COCO class 49, 4-of-6 frame vote) on the carpet.
 
-Publishes /room/overhead as 7 floats, pixels:
-  rover_x, rover_y, rover_w, rover_h, orange_x, orange_y, orange_radius
-A 0 means that object was not seen this frame.
+Publishes /room/overhead as 8 floats, pixels:
+  rover_x, rover_y, rover_w, rover_h, orange_x, orange_y, orange_radius, rover_confirmed
+A 0 means that object was not seen this frame. Rover fields are only filled once the track is CONFIRMED by motion:
+a moving foreground blob (OpenCV MOG2 background subtraction) that moves while /cmd_vel is commanding motion.
+Static tubs/boxes melt into the background and are never confirmed; a confirmed track that stays still while
+/cmd_vel says drive is dropped.
 Also publishes the live picture on /room/lifecam/image_raw/compressed (~4 Hz, 960x540 JPEG)
 for the web view (room-cam-web, port 8090).
 """
@@ -19,8 +22,10 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float32MultiArray
+from geometry_msgs.msg import Twist
 
 from orange_vote import OrangeVote
+from rover_track import RoverTrack
 
 MODEL = os.environ.get("ROOM_ORANGE_MODEL", "/weights/yolo11s.pt")
 CONF = float(os.environ.get("ORANGE_CONF", "0.40"))
@@ -85,12 +90,18 @@ class Eye(Node):
         self.pub = self.create_publisher(Float32MultiArray, "/room/overhead", 10)
         self.cap = None
         self.last_dbg = 0.0
-        self.last_rover = None
+        self.track = RoverTrack()
+        self.t_cmd = -1e9; self.cmd_moving = False
+        self.create_subscription(Twist, "/cmd_vel", self.on_cmd, 10)
         self.img_pub = self.create_publisher(CompressedImage, "/room/lifecam/image_raw/compressed", 2)
         self.n = 0
         self.orange = OrangeFinder(MODEL, CONF)
         self.create_timer(0.12, self.tick)
         self.get_logger().info(f"room eye up, LifeCam /dev/video0, orange = YOLO class 49 on {self.orange.dev}")
+
+    def on_cmd(self, m):
+        self.t_cmd = time.monotonic()
+        self.cmd_moving = abs(m.linear.x) > 0.03 or abs(m.angular.z) > 0.05
 
     def camera(self):
         if self.cap is not None and self.cap.isOpened():
@@ -107,7 +118,7 @@ class Eye(Node):
     def tick(self):
         cap = self.camera()
         msg = Float32MultiArray()
-        blank = [0.0] * 7
+        blank = [0.0] * 8
         if cap is None:
             msg.data = blank
             self.pub.publish(msg)
@@ -134,33 +145,16 @@ class Eye(Node):
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         orange = self.orange(frame)
         cands = rover_candidates(hsv, orange[:2] if orange else None)
-        rover = None
-        if cands:
-            if self.last_rover is not None:
-                lx, ly = self.last_rover
-                near = [c for c in cands if (c[1] - lx) ** 2 + (c[2] - ly) ** 2 < 220 ** 2]
-                pool = near or cands
-            else:
-                pool = cands
-            # Prefer the blob that moved, otherwise the one we already follow, else the largest.
-            rover = max(pool, key=lambda c: c[0])
-            if self.last_rover is not None:
-                moved = max(pool, key=lambda c: (c[1] - self.last_rover[0]) ** 2 + (c[2] - self.last_rover[1]) ** 2)
-                shift = (moved[1] - self.last_rover[0]) ** 2 + (moved[2] - self.last_rover[1]) ** 2
-                if 8 ** 2 < shift < 180 ** 2:
-                    rover = moved
-            self.last_rover = (rover[1], rover[2])
-        else:
-            self.last_rover = None
-        data = [0.0] * 7
+        now = time.monotonic()
+        rover = self.track.update(frame, cands, now - self.t_cmd < 0.5 and self.cmd_moving, now)
+        data = [0.0] * 8
         if rover:
             _, cx, cy, bw, bh = rover
-            data[0], data[1], data[2], data[3] = cx, cy, bw, bh
+            data[0], data[1], data[2], data[3], data[7] = cx, cy, bw, bh, 1.0
         if orange:
             data[4], data[5], data[6] = orange
         msg.data = [float(x) for x in data]
         self.pub.publish(msg)
-        now = time.monotonic()
         if now - self.last_dbg > 2.0:
             self.last_dbg = now
             cv2.imwrite("/tmp/room_eye_raw.jpg", frame)

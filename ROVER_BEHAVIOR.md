@@ -16,7 +16,7 @@ The drive board only drives while `/rover/session` is true and `/cmd_vel` is fre
 
 1. **ORANGE** - a real orange fruit is confirmed by a camera:
    - Rover camera: YOLO11s COCO class 49 (the fruit, conf >= `ORANGE_CONF` 0.40), run in the same pass as person detection.
-   - LifeCam (`room-eye`): the same detector at 1280 px; the room-eye path is used only while it also sees Rover.
+   - LifeCam (`room-eye`): the same detector at 1280 px. This path is used only while room-eye has a **confirmed** Rover track (`/room/overhead` field 8 = 1). A blob becomes Rover only after it is seen moving (MOG2 background subtraction) while `/cmd_vel` commands motion. Static tubs, boxes and a parked Rover are never confirmed. A track that stays still for 2.5 s while `/cmd_vel` says drive is dropped (`rover_track.py`).
    - Either one needs the orange in **4 of the last 6 frames** at a consistent spot and roundish shape (`orange_vote.py`). Orange-coloured tubs, boxes and toys are not the class and are ignored.
    - It drives at 16% usable, dropping to 11% then 7% as it gets close, and steers toward the orange. At 5 cm or less it stops and plays the tune.
 2. **FOLLOW** - a person (COCO class 0, ByteTrack) is held for `BEHAVIOUR_ENTER_S` 0.5 s:
@@ -38,6 +38,7 @@ Status JSON is published on `/rover/behaviour/status`. It includes the state, th
 ## Offline tests
 
 - `tools/test_orange_offline.py img...` runs the old HSV finder against YOLO + vote on still images.
+- `tools/test_rover_track.py frame.jpg` checks that the overhead Rover track ignores static blobs and confirms a moving one.
 - `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
 - `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 
