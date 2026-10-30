@@ -383,3 +383,40 @@ services:
       bash -c "source /opt/ros/jazzy/setup.bash &&
       exec python3 /opt/fleet/rover_depth.py"
     restart: unless-stopped
+
+  # Overhead LifeCam on the NUC (USB /dev/video0). Publishes /room/overhead and the live
+  # picture /room/lifecam/image_raw/compressed.
+  room-eye:
+    image: rover-follow:jazzy
+    container_name: room-eye
+    network_mode: host
+    devices:
+      - /dev/video0:/dev/video0
+    volumes:
+      - .:/opt/fleet:ro
+      - /tmp:/tmp
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+    command: >
+      bash -lc "source /opt/ros/jazzy/setup.bash && python3 -u /opt/fleet/room_eye.py"
+    restart: unless-stopped
+
+  # LifeCam web view (ROS web_video_server). Live MJPEG:
+  #   http://192.168.3.172:8090/stream?topic=/room/lifecam/image_raw&type=ros_compressed
+  room-cam-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.webvideo
+    image: web-video:jazzy
+    container_name: room-cam-web
+    network_mode: host
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+    volumes:
+      - .:/opt/fleet:ro
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec ros2 run web_video_server web_video_server --ros-args -p port:=8090 -p address:=0.0.0.0"
+    restart: unless-stopped

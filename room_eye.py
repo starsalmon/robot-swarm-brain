@@ -4,6 +4,8 @@
 Publishes /room/overhead as 7 floats, pixels:
   rover_x, rover_y, rover_w, rover_h, orange_x, orange_y, orange_radius
 A 0 means that object was not seen this frame.
+Also publishes the live picture on /room/lifecam/image_raw/compressed (~4 Hz, 960x540 JPEG)
+for the web view (room-cam-web, port 8090).
 """
 import time
 
@@ -11,6 +13,7 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Float32MultiArray
 
 
@@ -75,6 +78,8 @@ class Eye(Node):
         self.cap = None
         self.last_dbg = 0.0
         self.last_rover = None
+        self.img_pub = self.create_publisher(CompressedImage, "/room/lifecam/image_raw/compressed", 2)
+        self.n = 0
         self.create_timer(0.12, self.tick)
         self.get_logger().info("room eye up, LifeCam /dev/video0")
 
@@ -107,6 +112,16 @@ class Eye(Node):
             msg.data = blank
             self.pub.publish(msg)
             return
+        self.n += 1
+        if self.n % 2 == 0 and self.img_pub.get_subscription_count() > 0:
+            ok, jpg = cv2.imencode(".jpg", cv2.resize(frame, (960, 540)), [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                im = CompressedImage()
+                im.header.stamp = self.get_clock().now().to_msg()
+                im.header.frame_id = "lifecam"
+                im.format = "jpeg"
+                im.data = jpg.tobytes()
+                self.img_pub.publish(im)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         orange = find_orange(hsv)
         cands = rover_candidates(hsv, orange[:2] if orange else None)
