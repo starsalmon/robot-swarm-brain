@@ -1,0 +1,8 @@
+# Rover speech: YOLO "what am I holding" + Piper TTS -> MP3 served over HTTP to the AI cam speaker.
+FROM rover-follow:jazzy
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --no-cache-dir piper-tts
+RUN mkdir -p /voices && cd /voices && \
+    curl -sSfL -o en_GB-alan-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx" && \
+    curl -sSfL -o en_GB-alan-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/alan/medium/en_GB-alan-medium.onnx.json"

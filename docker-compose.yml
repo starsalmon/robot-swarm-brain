@@ -381,6 +381,29 @@ services:
       exec python3 /opt/fleet/rover_behaviour.py --search-after 1.5 --search-max-s 3.0 --kw 0.15 --kv 0.40 --dv 0.30"
     restart: unless-stopped
 
+  # Names the object held up to Rover's AI cam (YOLO11 + Piper TTS -> MP3 -> AI cam /play?url=), relays AI cam whistles.
+  rover-speech:
+    build:
+      context: .
+      dockerfile: Dockerfile.speech
+    image: rover-speech:jazzy
+    container_name: rover-speech
+    network_mode: host
+    runtime: nvidia
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - AICAM_URL=http://192.168.3.128
+      - SPEECH_HOST_IP=192.168.3.172
+      - SPEECH_PORT=8099
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash && exec python3 /opt/fleet/rover_speech.py"
+    restart: unless-stopped
+
   # Start: docker compose --profile slam up -d rover-depth   (DEPTH_L8_SCALE=1 enables L8 scale correction)
   rover-depth:
     build:

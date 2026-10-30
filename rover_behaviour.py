@@ -7,6 +7,9 @@
               Obstacle safety still applies on the way.
   2. FOLLOW   a person held in view >= BEHAVIOUR_ENTER_S: person_follow.Follower (YOLO person + ByteTrack, smooth
               PD steer, holds ~1 m), a bit faster than explore. Back to EXPLORE when lost > BEHAVIOUR_EXIT_S.
+  W. WHISTLE  a whistle (AI cam Goertzel detector -> rover_speech.py -> /rover/whistle) means "come here": for
+              WHISTLE_S seconds oranges are ignored, a confirmed person goes straight to FOLLOW, and with nobody in
+              view Rover turns on the spot (SEEK) looking for one. Losing the person inside the window -> SEEK again.
   3. EXPLORE  rover_explore.Explorer: continuous curving steer from the front L8 + VL53s, speed scales with the
               room ahead, pivots toward the open side when blocked, bump/stall = reverse + pivot, then carry on.
 
@@ -40,7 +43,9 @@ def main():
     enter_s = E("BEHAVIOUR_ENTER_S", 0.5); exit_s = E("BEHAVIOUR_EXIT_S", 5.0)
     TAG_M = E("TAG_SIZE_M", 0.08)
     NB = 12
-    ORANGE_V = E("ORANGE_V", 0.16)                     # approach speed while far
+    ORANGE_V = E("ORANGE_V", 0.16)
+    WHISTLE_S = E("WHISTLE_S", 45.0)                   # how long a whistle keeps Rover looking for / following you
+    SEEK_W = E("WHISTLE_SEEK_W", 0.14)                 # turn-on-the-spot speed while looking for the whistler                     # approach speed while far
     ARU = PF.cv2.aruco
     TDICT = ARU.getPredefinedDictionary(ARU.DICT_APRILTAG_36h11); TPAR = ARU.DetectorParameters_create()
     h = TAG_M / 2; TOBJ = PF.np.array([[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], PF.np.float32)
@@ -75,6 +80,8 @@ def main():
             s.pspk = s.create_publisher(UInt32, "/rover/speaker/code", 10); s.t_snd = 0.0; s.t_person_snd = -1e9
             s.create_subscription(Bool, "/fleet/allow_drive", s.on_allow, 10)
             s.create_subscription(Bool, "/rover/button", s.on_button, 10)
+            s.t_whistle = -1e9
+            s.create_subscription(Bool, "/rover/whistle", s.on_whistle, 10)
             s.create_subscription(UInt8, "/rover/button_event", s.on_button_event, 10)
             s.create_subscription(Float32MultiArray, "/room/overhead", s.on_room, 10)
             s.pcmd = s.create_publisher(Twist, "/cmd_vel", 10)
@@ -165,6 +172,10 @@ def main():
                 s.halt("allow_drive OFF")
             if new != s.allow: s.get_logger().info(f"allow_drive={new}")
             s.allow = new
+
+        def on_whistle(s, m):
+            if m.data:
+                s.t_whistle = time.monotonic(); s.get_logger().info("whistle: looking for a person to follow")
 
         def on_button(s, m):
             if not m.data:
@@ -344,6 +355,8 @@ def main():
                 s.halt("allow_drive stale"); s.allow = False
             cam_orange = now - s.orange_t < 0.5
             room_orange = now - s.room_t < 1.0
+            whistle = now - s.t_whistle < WHISTLE_S
+            if whistle: cam_orange = room_orange = False             # "come here" beats the orange
             if cam_orange or room_orange:
                 s.orange_miss = None
                 s.goto("ORANGE", "orange seen by " + ("Rover camera" if cam_orange else "overhead LifeCam"))
@@ -356,12 +369,17 @@ def main():
                 f.target = None; f.dets = []; f.fruit = []            # nothing from a silent camera counts
             cand, confirmed = s.gate.person(now)
             s.tgt_since = (s.tgt_since or now) if cand else None
-            if s.state == "EXPLORE" and confirmed:
-                s.goto("FOLLOW", "person in view")
+            lost = "SEEK" if whistle else "EXPLORE"
+            if whistle and s.state in ("EXPLORE", "ORANGE"):
+                s.goto("SEEK", "whistle")
+            if s.state in ("EXPLORE", "SEEK") and confirmed:
+                s.goto("FOLLOW", "person in view" + (" after whistle" if whistle else ""))
+            elif s.state == "SEEK" and not whistle:
+                s.goto("EXPLORE", "whistle window over, nobody found")
             elif s.state == "FOLLOW" and not cam_live:
-                s.goto("EXPLORE", "camera stale")
+                s.goto(lost, "camera stale")
             elif s.state == "FOLLOW" and now - f.t_seen > exit_s and (f.bo is None or now - f.t_seen > exit_s + 4.0):
-                s.goto("EXPLORE", f"person lost {now - f.t_seen:.1f}s")
+                s.goto(lost, f"person lost {now - f.t_seen:.1f}s")
             if s.state == "ORANGE":
                 if cam_orange or s.arrived:
                     v, w, why = s.orange_cmd(now)
@@ -372,6 +390,11 @@ def main():
                 v, w, why = s.safety(now, v, w, why)
             elif s.state == "FOLLOW":
                 v, w = f.control(now); why = "follow: " + f.why
+            elif s.state == "SEEK":
+                v, w = 0.0, SEEK_W * s.turn_sign
+                why = f"whistle: turning to find you ({WHISTLE_S - (now - s.t_whistle):.0f}s left)"
+                if s.tgt_since is not None: w *= 0.4; why += " (person? confirming)"
+                if not cam_live: why += " (camera offline)"
             else:
                 v, w, why = s.x.step(now)
                 if s.tgt_since is not None:                       # person maybe: ease off while the tracker confirms
@@ -396,7 +419,7 @@ def main():
             st = String(); st.data = json.dumps(dict(t=time.time(), state=s.state, allow=s.allow, go=s.go, v=round(s.cmd[0], 3), w=round(s.cmd[1], 3),
                         why=why, tgt=f.target, ndet=len(f.dets), nfruit=len(f.fruit), orange_cam=ob, orange_room=room_orange,
                         dist=None if f.dist is None else round(f.dist, 2), bearing_deg=round(math.degrees(f.bearing), 1),
-                        age=round(min(9.0, now - f.t_seen), 2), cam_age=round(min(99.0, now - f.t_img), 1), cam_live=cam_live, tags=[t["id"] for t in s.tag_vis],
+                        age=round(min(9.0, now - f.t_seen), 2), cam_age=round(min(99.0, now - f.t_img), 1), cam_live=cam_live, whistle=whistle, tags=[t["id"] for t in s.tag_vis],
                         yaw_deg=None if s.yaw is None else round(math.degrees(s.yaw)), path_m=round(s.path, 2)))
             s.pst.publish(st)
 
