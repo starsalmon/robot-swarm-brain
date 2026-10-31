@@ -13,7 +13,9 @@ URL = E("DET_URL", "http://127.0.0.1:8765").rstrip("/")
 PC_URL = "http://192.168.2.44:8765"                    # Windows RTX 3080, use as DET_URL to offload there
 TIMEOUT = E("DET_TIMEOUT_S", 0.35)
 RETRY_S = E("DET_RETRY_S", 10.0)
-ORANGE_NAMES = {"orange fruit"}   # only the fruit; "orange ball/toy/lid", "basketball", "traffic cone" are decoys in the vocab
+# YOLO-World labels counted as THE orange. On the real orange it fires as "orange ball" (LifeCam 0.70-0.74) and never as
+# "orange fruit"; "orange toy/lid", "basketball", "traffic cone" stay in the vocab as decoys and are not accepted.
+ORANGE_NAMES = set(w.strip() for w in os.environ.get("DET_ORANGE_NAMES", "orange fruit,orange ball").split(",") if w.strip())
 PERSON_NAMES = {"person"}
 
 

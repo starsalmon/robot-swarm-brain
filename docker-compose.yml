@@ -477,7 +477,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - ROOM_ORANGE_MODEL=/weights/yolo11s.pt
-      - ORANGE_CONF=0.40
+      - ORANGE_CONF=0.50         # real orange scores 0.70-0.74 as "orange ball" on the LifeCam; nothing else above 0.34
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
     command: >
       bash -lc "source /opt/ros/jazzy/setup.bash && python3 -u /opt/fleet/room_eye.py"

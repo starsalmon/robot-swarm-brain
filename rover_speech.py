@@ -16,6 +16,10 @@ from collections import Counter, deque
 
 E = lambda k, d: type(d)(os.environ.get(k, d))
 CAM = E("AICAM_URL", "http://192.168.3.128")
+# louder: Piper is already ~-14 LUFS peaking at 0 dBFS, so plain gain just clips. Compress, add makeup gain, then a
+# limiter so nothing clips: -14 -> ~-10 LUFS (about +4 dB heard) with peaks held below 0 dBFS. SPEECH_BOOST_DB tunes it.
+SPEECH_AF = (f"acompressor=threshold=0.05:ratio=6:attack=3:release=60,volume={E('SPEECH_BOOST_DB', '20')}dB,"
+             "alimiter=limit=0.84:attack=2:release=60:level=false")
 HOST_IP = E("SPEECH_HOST_IP", "192.168.3.172")
 PORT = E("SPEECH_PORT", 8099)
 VOICE = E("SPEECH_VOICE", "/voices/en_GB-alan-medium.onnx")
@@ -96,7 +100,7 @@ def main():
                 try:
                     s.n += 1; base = os.path.join(OUT, f"say_{s.n % 20}")
                     subprocess.run(["piper", "-m", VOICE, "-f", base + ".wav"], input=text.encode(), check=True, capture_output=True, timeout=30)
-                    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", base + ".wav", "-ac", "1", "-ar", "22050", "-b:a", "48k",
+                    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", base + ".wav", "-af", SPEECH_AF, "-ac", "1", "-ar", "22050", "-b:a", "48k",
                                     base + ".mp3"], check=True, timeout=30)
                     url = f"http://{HOST_IP}:{PORT}/{os.path.basename(base)}.mp3?n={s.n}"
                     cam_get("/play?url=" + urllib.parse.quote(url, safe=""))
