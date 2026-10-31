@@ -43,6 +43,9 @@ class MiniWander(Node):
     def _tick(self) -> None:
         msg = Twist()
         self._wander.fill_twist(msg)
+        reason = self._wander.gate_forward(msg)
+        if reason:
+            self.get_logger().warn(f'forward gate: lin→0, {reason}', throttle_duration_sec=2.0)
         self.pub.publish(msg)
 
 

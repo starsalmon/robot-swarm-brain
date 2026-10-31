@@ -8,9 +8,10 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from sensor_msgs.msg import Range
 from std_msgs.msg import Bool, Float32
 
-from fleet_steering import IrSteerConfig, steer_ir_beacon
+from fleet_steering import IrSteerConfig, WanderConfig, WanderState, steer_ir_beacon
 
 
 class BeaconChase(Node):
@@ -31,6 +32,11 @@ class BeaconChase(Node):
         self._ir_cfg = IrSteerConfig(pan_center=pan_center)
         self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_detected, 10)
         self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
+        # Forward gate (same as explore_then_chase): no forward lin without fresh sonar.
+        self._guard = WanderState.from_config(WanderConfig.from_env(pan_center=pan_center))
+        self.create_subscription(
+            Range, f'/{ns}/sonar/range',
+            lambda m: self._guard.update_range(float(m.range), self._pan_deg), 10)
         self.create_timer(self.TICK, self._tick)
         mode = 'dual TSOP' if self._dual_ir else 'pan-scan (body still until IR in view)'
         self.get_logger().info(f'beacon_chase: {mode} hold={self.SIGNAL_HOLD}s')
@@ -78,6 +84,9 @@ class BeaconChase(Node):
             self._tick_dual(msg)
         else:
             self._tick_pan_scan(msg)
+        reason = self._guard.gate_forward(msg)
+        if reason:
+            self.get_logger().warn(f'forward gate: lin→0, {reason}', throttle_duration_sec=2.0)
         self._cmd.publish(msg)
 
 

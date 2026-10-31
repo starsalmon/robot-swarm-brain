@@ -86,6 +86,8 @@ class ExploreThenChase(Node):
         if not self._require_imu:
             self._wander._heading.force_ready()
         self._cal_log_at = 0.0
+        self._gate_reason: str | None = None
+        self._gate_log_at = 0.0
         self._cal_done_logged = False
         self.create_timer(self.TICK, self._tick)
         self.get_logger().info(
@@ -172,6 +174,21 @@ class ExploreThenChase(Node):
         self._allow_drive = allow
         self.get_logger().info(f'allow_drive={allow}')
 
+    def _publish(self, msg: Twist, mode: str) -> None:
+        """Single exit for /cmd_vel: forward gate applies to every mode."""
+        zeroed = self._wander.gate_forward(msg) is not None
+        reason = self._wander.forward_block_reason()
+        now = time.monotonic()
+        if reason != self._gate_reason or (reason and now >= self._gate_log_at):
+            if reason:
+                act = 'zeroed forward cmd' if zeroed else 'forward held at 0'
+                self.get_logger().warn(f'forward gate [{mode}]: {act}, {reason}')
+                self._gate_log_at = now + 2.0
+            elif self._gate_reason:
+                self.get_logger().info(f'forward gate [{mode}]: clear')
+            self._gate_reason = reason
+        self.pub.publish(msg)
+
     def _tick(self) -> None:
         if not self._allow_drive or not self._drive_enable:
             self.pub.publish(Twist())
@@ -185,13 +202,16 @@ class ExploreThenChase(Node):
             self._meet_was_active = True
             msg = Twist()
             msg.linear.x, msg.angular.z = meet_cmd
-            self.pub.publish(msg)
+            self._publish(msg, 'meet')
             return
         if self._meet_was_active:
             self._meet_was_active = False
             self.get_logger().info('meet dance done')
         now = time.monotonic()
         if self._require_imu and not self._imu_seen:
+            if now >= self._gate_log_at:
+                self._gate_log_at = now + 5.0
+                self.get_logger().info('hold: no IMU yet (lin=0, ang=0)')
             self.pub.publish(Twist())
             return
 
@@ -256,6 +276,7 @@ class ExploreThenChase(Node):
                     f'{self._wander.burst_duration_s:.1f}s'
                 )
 
+        self._wander.gate_forward(msg)  # gate before logging/CSV so logs show what is sent
         now = time.monotonic()
         if now >= self._drive_log_at:
             self._drive_log_at = now + 2.0
@@ -281,7 +302,7 @@ class ExploreThenChase(Node):
                     f'{self._wander.trap_level()}\n'
                 )
 
-        self.pub.publish(msg)
+        self._publish(msg, mode)
 
 
 def main() -> None:

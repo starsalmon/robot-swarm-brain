@@ -29,7 +29,6 @@ class WanderConfig:
     cruise_max: float = 0.26
     steer: float = 0.32
     spin_rate: float = 0.65
-    blind_cruise: float = 0.08
     burst_speed: float = 0.70
     burst_duration_s: float = 1.5
     burst_min_interval_s: float = 90.0
@@ -64,6 +63,8 @@ class WanderConfig:
     imu_cal_s: float = 2.5
     imu_cal_min_samples: int = 50
     rear_stop_m: float = 0.12
+    # Forward gate: nonzero forward lin needs a valid centred range newer than this.
+    fwd_fresh_s: float = 0.5
 
     @classmethod
     def from_env(cls, *, pan_center: float = 90.0) -> WanderConfig:
@@ -81,7 +82,6 @@ class WanderConfig:
             cruise_max=float(os.environ.get('WANDER_CRUISE_MAX', '0.24' if carpet else '0.30')),
             steer=float(os.environ.get('WANDER_STEER', '0.30' if carpet else '0.35')),
             spin_rate=float(os.environ.get('WANDER_SPIN_RATE', '0.65')),
-            blind_cruise=float(os.environ.get('WANDER_BLIND_CRUISE', '0.08' if carpet else '0.10')),
             burst_speed=float(os.environ.get('WANDER_BURST_SPEED', '0.70')),
             burst_duration_s=float(os.environ.get('WANDER_BURST_SEC', '1.5')),
             burst_min_interval_s=float(os.environ.get('WANDER_BURST_MIN_INTERVAL', '90')),
@@ -111,6 +111,7 @@ class WanderConfig:
             imu_cal_s=float(os.environ.get('IMU_CAL_SEC', '2.5')),
             imu_cal_min_samples=int(os.environ.get('IMU_CAL_MIN_SAMPLES', '50')),
             rear_stop_m=float(os.environ.get('WANDER_REAR_STOP_M', '0.12')),
+            fwd_fresh_s=float(os.environ.get('WANDER_FWD_FRESH_S', '0.5')),
         )
 
 
@@ -244,7 +245,6 @@ class WanderState:
     cruise_max: float = 0.26
     steer: float = 0.30
     spin_rate: float = 0.65
-    blind_cruise: float = 0.08
     burst_speed: float = 0.70
     burst_duration_s: float = 1.5
     burst_min_interval_s: float = 90.0
@@ -280,7 +280,11 @@ class WanderState:
     imu_cal_s: float = 2.5
     imu_cal_min_samples: int = 50
     rear_stop_m: float = 0.12
+    # Forward gate: nonzero forward lin needs a valid centred range newer than this.
+    fwd_fresh_s: float = 0.5
     _range_m: float = field(default_factory=lambda: float('nan'))
+    _fwd_m: float = field(default_factory=lambda: float('nan'))
+    _fwd_at: float = 0.0
     _last_good_m: float = field(default_factory=lambda: float('nan'))
     _recent_close_m: float = field(default_factory=lambda: float('nan'))
     _recent_close_ms: float = 0.0
@@ -334,7 +338,6 @@ class WanderState:
             cruise_max=cfg.cruise_max,
             steer=cfg.steer,
             spin_rate=cfg.spin_rate,
-            blind_cruise=cfg.blind_cruise,
             burst_speed=cfg.burst_speed,
             burst_duration_s=cfg.burst_duration_s,
             burst_min_interval_s=cfg.burst_min_interval_s,
@@ -370,6 +373,7 @@ class WanderState:
             imu_cal_s=cfg.imu_cal_s,
             imu_cal_min_samples=cfg.imu_cal_min_samples,
             rear_stop_m=cfg.rear_stop_m,
+            fwd_fresh_s=cfg.fwd_fresh_s,
         )
 
     def __post_init__(self) -> None:
@@ -483,7 +487,7 @@ class WanderState:
     def _forward_speed(self, rng: float, now: float, *, lin_hint: float = 0.0) -> float:
         """Open-road cruise varies with clearance + slow mood changes."""
         if math.isnan(rng):
-            return self.blind_cruise
+            return 0.0  # no forward range → no forward motion
         slow_lim = self._slow_threshold(lin_hint)
         stop_lim = self._stop_threshold(lin_hint)
         if rng < slow_lim:
@@ -506,7 +510,7 @@ class WanderState:
         return 'center'
 
     def update_rear(self, range_m: float) -> None:
-        if math.isnan(range_m) or range_m <= 0.0:
+        if not math.isfinite(range_m) or range_m <= 0.0:
             self._rear_m = float('nan')
             return
         self._rear_m = range_m
@@ -530,8 +534,10 @@ class WanderState:
             self._pan_deg = pan_deg
         now = time.monotonic()
 
-        if math.isnan(range_m) or range_m <= 0.0:
+        if not math.isfinite(range_m) or range_m <= 0.0:
+            # NaN / inf / 0 / -1 = no echo or fault: forward is NOT clear.
             self._range_m = float('nan')
+            self._fwd_m = float('nan')
             self._last_range_ms = now
             return
 
@@ -550,6 +556,8 @@ class WanderState:
         close = range_m < self.close_any_angle_m
 
         if centered:
+            self._fwd_m = range_m
+            self._fwd_at = now
             self._range_m = range_m
             self._last_good_m = range_m
             self._last_range_ms = now
@@ -679,12 +687,7 @@ class WanderState:
         now = time.monotonic()
         if not math.isnan(self._range_m) and (now - self._last_range_ms) <= self.range_stale_s:
             return self._range_m
-        if (
-            not math.isnan(self._last_good_m)
-            and self._last_good_m > self.slow_m
-            and (now - self._last_range_ms) < self.range_stale_s
-        ):
-            return self._last_good_m
+        # No fallback to an older 'last good' reading: an invalid echo means unknown.
         return float('nan')
 
     def _effective_range(self) -> float:
@@ -894,11 +897,9 @@ class WanderState:
             return
 
         if math.isnan(rng):
-            if stale:
-                self._blend_steer(msg, self.blind_cruise, now, explore_gain=0.5)
-            else:
-                msg.linear.x = 0.0
-                msg.angular.z = 0.0
+            # No valid forward range: hold still (never cruise blind).
+            msg.linear.x = 0.0
+            msg.angular.z = 0.0
             self._apply_speed_limits(msg, now)
             self._last_driving = msg.linear.x > 0.05
             return
@@ -908,7 +909,7 @@ class WanderState:
                 self._trap_level = max(self._trap_level, 2)
                 self._avoid_cooldown_until = 0.0
             if now < self._avoid_cooldown_until:
-                msg.linear.x = self.blind_cruise
+                msg.linear.x = 0.0
                 msg.angular.z = self._heading.correction()
                 self._apply_speed_limits(msg, now)
                 self._last_driving = msg.linear.x > 0.05
@@ -938,11 +939,43 @@ class WanderState:
     def apply_sonar_stop(self, msg: Twist, *, stop_m: float | None = None) -> bool:
         limit = self.stop_m if stop_m is None else stop_m
         rng = self._effective_range()
-        if math.isnan(rng) or rng >= limit:
+        if math.isnan(rng):
+            # Unknown forward range counts as blocked (forward only).
+            if msg.linear.x > 0.0:
+                msg.linear.x = 0.0
+                return True
+            return False
+        if rng >= limit:
             return False
         msg.linear.x = 0.0
         msg.angular.z = 0.0
         return True
+
+    def forward_block_reason(self, now: float | None = None) -> str | None:
+        """None if forward is clear on a valid, fresh, centred range; else why not."""
+        now = time.monotonic() if now is None else now
+        if math.isnan(self._fwd_m):
+            return 'no valid forward range (nan/0/-1 or never seen)'
+        age = now - self._fwd_at
+        if age > self.fwd_fresh_s:
+            return f'forward range stale {age:.2f}s > {self.fwd_fresh_s:.2f}s'
+        if self._fwd_m < self.stop_m:
+            return f'obstacle {self._fwd_m:.2f}m < stop {self.stop_m:.2f}m'
+        return None
+
+    def gate_forward(self, msg: Twist) -> str | None:
+        """Final forward gate for every mode: zero positive lin unless forward is clear.
+
+        Reverse and spin-in-place are untouched (rear ToF stop lives on-board).
+        Returns the block reason when it zeroed a forward command, else None.
+        """
+        if msg.linear.x <= 0.0:
+            return None
+        reason = self.forward_block_reason()
+        if reason is None:
+            return None
+        msg.linear.x = 0.0
+        return reason
 
 
 @dataclass
