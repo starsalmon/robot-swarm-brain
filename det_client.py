@@ -52,6 +52,6 @@ class Detector:
         body = {"reset": True} if reset else ({"add": list(add)} if add else {"vocab": list(words or [])})
         try:
             q = urllib.request.Request(URL + "/vocab", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(q, timeout=2.0) as r: return json.load(r)["vocab"]
+            with urllib.request.urlopen(q, timeout=10.0) as r: return json.load(r)["vocab"]   # CLIP re-encode takes ~2 s
         except Exception:
             return None

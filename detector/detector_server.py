@@ -42,6 +42,7 @@ def set_vocab(v):
     global vocab
     v = [str(x).strip() for x in v if str(x).strip()]
     if not v: raise HTTPException(400, "empty vocab")
+    if v == vocab: return                        # unchanged: skip the CLIP re-encode (~0.5 s per model)
     with lock:
         vocab = v
         for m in models.values(): m.set_classes(vocab)
@@ -51,7 +52,7 @@ def run(cam, img, track, frame_ts):
     t0 = time.perf_counter()
     with lock:
         m = model_for(cam)
-        kw = dict(conf=CONF, imgsz=IMGSZ, half=dev != "cpu", verbose=False, device=dev)
+        kw = dict(conf=CONF, imgsz=IMGSZ, verbose=False, device=dev)
         r = (m.track(img, persist=True, tracker="bytetrack.yaml", **kw) if track else m.predict(img, **kw))[0]
     dets = []
     if r.boxes is not None and len(r.boxes):
