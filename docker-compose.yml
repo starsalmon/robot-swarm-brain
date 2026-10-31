@@ -357,7 +357,7 @@ services:
       - .:/opt/fleet:ro
       - ./captures:/captures
     environment:
-      - DET_REMOTE=0                   # 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
+      - DET_REMOTE=1                   # 0 = local YOLO11 only; 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
       - DET_URL=http://127.0.0.1:8765  # NUC detector; Windows PC: http://192.168.2.44:8765
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
@@ -395,7 +395,7 @@ services:
     volumes:
       - .:/opt/fleet:ro
     environment:
-      - DET_REMOTE=0                   # 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
+      - DET_REMOTE=1                   # 0 = local YOLO11 only; 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
       - DET_URL=http://127.0.0.1:8765  # NUC detector; Windows PC: http://192.168.2.44:8765
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
