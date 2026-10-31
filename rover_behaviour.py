@@ -45,6 +45,7 @@ def main():
     NB = 12
     ORANGE_V = E("ORANGE_V", 0.16)
     WHISTLE_S = E("WHISTLE_S", 45.0)                   # how long a whistle keeps Rover looking for / following you
+    GUARD_M = E("GUARD_M", 0.20)                        # hard obstacle stop distance for every mode
     SEEK_W = E("WHISTLE_SEEK_W", 0.14)                 # turn-on-the-spot speed while looking for the whistler                     # approach speed while far
     ARU = PF.cv2.aruco
     TDICT = ARU.getPredefinedDictionary(ARU.DICT_APRILTAG_36h11); TPAR = ARU.DetectorParameters_create()
@@ -72,7 +73,7 @@ def main():
             s.create_subscription(Range, "/rover/tof/front", s.on_front, 10)
             s.create_subscription(Range, "/rover/sonar/range", lambda m: (setattr(f, "rear", m.range), setattr(f, "t_rear", time.monotonic())), qos_profile_sensor_data)
             for tp, b in (("left", 90), ("right", -90), ("front_left", 45), ("front_right", -45)):
-                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: s.x.on_range(tp, b, m.range, time.monotonic()), 10)
+                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: (s.x.on_range(tp, b, m.range, time.monotonic()), s.on_side(tp, m.range)), 10)
             s.create_subscription(Bool, "/rover/bump", lambda m: m.data and s.x.on_bump(time.monotonic(), "bump"), 10)
             s.create_subscription(Bool, "/rover/stall", lambda m: m.data and s.x.on_bump(time.monotonic(), "stall"), 10)
             s.create_subscription(Odometry, "/rover/odom/wheel", s.on_odom, 10)
@@ -81,6 +82,7 @@ def main():
             s.create_subscription(Bool, "/fleet/allow_drive", s.on_allow, 10)
             s.create_subscription(Bool, "/rover/button", s.on_button, 10)
             s.t_whistle = -1e9
+            s.side = {}; s.t_guard_log = 0.0; s.guard_hits = 0
             s.create_subscription(Bool, "/rover/whistle", s.on_whistle, 10)
             s.create_subscription(UInt8, "/rover/button_event", s.on_button_event, 10)
             s.create_subscription(Float32MultiArray, "/room/overhead", s.on_room, 10)
@@ -108,6 +110,30 @@ def main():
             now = time.monotonic()
             s.f.front = m.range if m.range > 0.02 else None; s.f.t_front = now
             s.x.on_range("front", 0, m.range, now)
+
+        def on_side(s, name, r):
+            s.side[name] = (r if r > 0.02 else None, time.monotonic())
+
+        def guard(s, now, v, w, why):
+            """Hard obstacle stop for EVERY mode (FOLLOW, SEEK spin, EXPLORE, ORANGE, overhead): no forward motion with
+            anything inside GUARD_M on the L8 centre columns / front ToF, and no turn toward a front-corner or side ToF
+            reading inside GUARD_M. Stale front sensing (L8 and front ToF both older than 0.6 s) also blocks forward."""
+            ahead = min([x for x in (s.cols[2:6] if len(s.cols) == 8 and now - s.f.t_safe < 0.6 else []) if x > 0.02] or [9.0])
+            front_fresh = s.f.front is not None and now - s.f.t_front < 0.6
+            if front_fresh: ahead = min(ahead, s.f.front)
+            l8_fresh = len(s.cols) == 8 and now - s.f.t_safe < 0.6
+            def near(n):
+                r, t = s.side.get(n, (None, -1e9))
+                return r is not None and now - t < 0.6 and r < GUARD_M
+            hit = []
+            if v > 0 and ahead < GUARD_M: v = 0.0; hit.append(f"ahead {ahead:.2f} m")
+            elif v > 0 and not (l8_fresh or front_fresh): v = 0.0; hit.append("front sensing stale")
+            if w > 0 and (near("front_left") or near("left")): w = 0.0; hit.append("left side close")
+            if w < 0 and (near("front_right") or near("right")): w = 0.0; hit.append("right side close")
+            if hit:
+                s.guard_hits += 1; why += " | GUARD: " + ", ".join(hit)
+            s.g_ahead = ahead
+            return v, w, why
 
         def on_grid(s, m): s.f.l8 = PF.np.array(m.data, float).reshape(8, 8) / 1000.0; s.f.t_l8 = time.monotonic()
 
@@ -400,9 +426,15 @@ def main():
                 if s.tgt_since is not None:                       # person maybe: ease off while the tracker confirms
                     v *= 0.6; why += " (person? confirming)"
                 if now - f.t_img > 2.0: why += f" (camera offline {min(99, now - f.t_img):.0f}s)"
+            v, w, why = s.guard(now, v, w, why)                   # no mode bypasses the obstacle guard
             if not s.go:
                 v, w, why = 0.0, 0.0, "stopped — press Go"
             s.cmd = (float(v), float(w))
+            if now - s.t_guard_log >= 1.0:
+                s.t_guard_log = now
+                sd = {k: (None if r is None or now - t > 0.6 else round(r, 2)) for k, (r, t) in s.side.items()}
+                s.get_logger().info(f"[1Hz] mode={s.state} v={s.cmd[0]:.3f} w={s.cmd[1]:.3f} l8_min={s.g_ahead:.2f} side={sd} "
+                                    f"allow={s.allow} go={s.go} guard_hits={s.guard_hits} why={why}")
             e = Bool(); e.data = s.state == "EXPLORE"; s.pexp.publish(e)
             tw = Twist(); tw.linear.x, tw.angular.z = s.cmd
             s.pwould.publish(tw)
