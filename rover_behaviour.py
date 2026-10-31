@@ -118,16 +118,17 @@ def main():
             """Hard obstacle stop for EVERY mode (FOLLOW, SEEK spin, EXPLORE, ORANGE, overhead): no forward motion with
             anything inside GUARD_M on the L8 centre columns / front ToF, and no turn toward a front-corner or side ToF
             reading inside GUARD_M. Stale front sensing (L8 and front ToF both older than 0.6 s) also blocks forward."""
-            ahead = min([x for x in (s.cols[2:6] if len(s.cols) == 8 and now - s.f.t_safe < 0.6 else []) if x > 0.02] or [9.0])
-            front_fresh = s.f.front is not None and now - s.f.t_front < 0.6
-            if front_fresh: ahead = min(ahead, s.f.front)
-            l8_fresh = len(s.cols) == 8 and now - s.f.t_safe < 0.6
+            ok = lambda x: x is not None and math.isfinite(x) and x > 0.02       # NaN / 0 / -1 = no valid range
+            l8_vals = [x for x in (s.cols[2:6] if len(s.cols) == 8 and now - s.f.t_safe < 0.6 else []) if ok(x)]
+            front_fresh = ok(s.f.front) and now - s.f.t_front < 0.6
+            ahead = min(l8_vals + ([s.f.front] if front_fresh else []) or [9.0])
+            l8_fresh = bool(l8_vals)                                  # fresh AND at least one valid centre zone
             def near(n):
                 r, t = s.side.get(n, (None, -1e9))
                 return r is not None and now - t < 0.6 and r < GUARD_M
             hit = []
             if v > 0 and ahead < GUARD_M: v = 0.0; hit.append(f"ahead {ahead:.2f} m")
-            elif v > 0 and not (l8_fresh or front_fresh): v = 0.0; hit.append("front sensing stale")
+            elif v > 0 and not (l8_fresh or front_fresh): v = 0.0; hit.append("no valid front range (L8 centre + front ToF)")
             if w > 0 and (near("front_left") or near("left")): w = 0.0; hit.append("left side close")
             if w < 0 and (near("front_right") or near("right")): w = 0.0; hit.append("right side close")
             if hit:
