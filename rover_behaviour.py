@@ -435,7 +435,7 @@ def main():
                 s.t_guard_log = now
                 sd = {k: (None if r is None or now - t > 0.6 else round(r, 2)) for k, (r, t) in s.side.items()}
                 s.get_logger().info(f"[1Hz] mode={s.state} v={s.cmd[0]:.3f} w={s.cmd[1]:.3f} l8_min={s.g_ahead:.2f} side={sd} "
-                                    f"allow={s.allow} go={s.go} guard_hits={s.guard_hits} why={why}")
+                                    f"allow={s.allow} go={s.go} guard_hits={s.guard_hits} det={getattr(s.f, 'det_src', '-')}({getattr(getattr(s.f, 'det', None), 'why', 'off')}) why={why}")
             e = Bool(); e.data = s.state == "EXPLORE"; s.pexp.publish(e)
             tw = Twist(); tw.linear.x, tw.angular.z = s.cmd
             s.pwould.publish(tw)
