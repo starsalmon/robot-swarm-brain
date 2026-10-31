@@ -471,6 +471,8 @@ services:
       - .:/opt/fleet:ro
       - /tmp:/tmp
     environment:
+      - DET_REMOTE=1                   # orange = YOLO-World "orange fruit" on the NUC detector, local YOLO11s if it is down
+      - DET_URL=http://127.0.0.1:8765
       - ROS_DOMAIN_ID=0
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility

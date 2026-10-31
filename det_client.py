@@ -13,7 +13,7 @@ URL = E("DET_URL", "http://127.0.0.1:8765").rstrip("/")
 PC_URL = "http://192.168.2.44:8765"                    # Windows RTX 3080, use as DET_URL to offload there
 TIMEOUT = E("DET_TIMEOUT_S", 0.35)
 RETRY_S = E("DET_RETRY_S", 10.0)
-ORANGE_NAMES = {"orange fruit", "orange"}               # map YOLO-World names onto the COCO roles callers use
+ORANGE_NAMES = {"orange fruit"}   # only the fruit; "orange ball/toy/lid", "basketball", "traffic cone" are decoys in the vocab
 PERSON_NAMES = {"person"}
 
 
@@ -34,11 +34,11 @@ class Detector:
         if not s.ok: s.t_bad = time.monotonic()
         return s.ok
 
-    def detect(s, jpeg, track=False):
+    def detect(s, jpeg, track=False, imgsz=0):
         """jpeg bytes -> list of {cls, conf, bbox[x1,y1,x2,y2], id} or None (unhealthy -> use local YOLO)."""
         if not s.healthy(): return None
         try:
-            q = urllib.request.Request(f"{URL}/detect?cam={s.cam}&track={int(track)}", data=bytes(jpeg),
+            q = urllib.request.Request(f"{URL}/detect?cam={s.cam}&track={int(track)}&imgsz={int(imgsz)}", data=bytes(jpeg),
                                        headers={"Content-Type": "image/jpeg"})
             with urllib.request.urlopen(q, timeout=TIMEOUT) as r: out = json.load(r)
             s.n_ok += 1; return out["dets"]

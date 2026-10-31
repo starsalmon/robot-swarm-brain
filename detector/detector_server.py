@@ -22,12 +22,16 @@ CAMS = json.loads(E("DET_CAMS", '{"rover": "http://192.168.3.128:81/stream", "be
 PULL = E("DET_PULL", 1)                              # 1 = keep pulling both MJPEG streams for /latest
 DEFAULT_VOCAB = ["person", "orange fruit", "cup", "mug", "bottle", "bowl", "plate", "spoon", "fork", "knife", "banana", "apple",
                  "phone", "remote control", "keyboard", "computer mouse", "laptop", "book", "scissors", "teddy bear", "ball",
-                 "toy", "shoe", "backpack", "handbag", "umbrella", "clock", "vase", "pot plant", "chair", "couch", "bed",
+                 "toy", "orange ball", "orange toy", "basketball", "traffic cone", "orange lid", "shoe", "backpack", "handbag", "umbrella", "clock", "vase", "pot plant", "chair", "couch", "bed",
                  "dining table", "tv", "door", "cat", "dog", "lego", "box", "charging dock"]
 
+VOCAB_FILE = E("DET_VOCAB_FILE", "vocab_extra.json")   # find-X additions, kept across restarts (cwd = /dweights on the NUC)
+def load_extra():
+    try: return [w for w in json.load(open(VOCAB_FILE)) if w not in DEFAULT_VOCAB]
+    except Exception: return []
 dev = "cuda:0" if torch.cuda.is_available() else "cpu"
 lock = threading.Lock()
-models, vocab = {}, list(DEFAULT_VOCAB)
+models, vocab = {}, list(DEFAULT_VOCAB) + load_extra()
 latest, fps = {}, {}
 
 
@@ -46,13 +50,15 @@ def set_vocab(v):
     with lock:
         vocab = v
         for m in models.values(): m.set_classes(vocab)
+    try: json.dump([w for w in vocab if w not in DEFAULT_VOCAB], open(VOCAB_FILE, "w"))
+    except Exception as e: print("vocab save failed:", e)
 
 
-def run(cam, img, track, frame_ts):
+def run(cam, img, track, frame_ts, imgsz=None):
     t0 = time.perf_counter()
     with lock:
         m = model_for(cam)
-        kw = dict(conf=CONF, imgsz=IMGSZ, verbose=False, device=dev)
+        kw = dict(conf=CONF, imgsz=imgsz or IMGSZ, verbose=False, device=dev)
         r = (m.track(img, persist=True, tracker="bytetrack.yaml", **kw) if track else m.predict(img, **kw))[0]
     dets = []
     if r.boxes is not None and len(r.boxes):
@@ -105,10 +111,10 @@ async def post_vocab(req: Request):
     return {"vocab": vocab}
 
 @app.post("/detect")
-async def detect(req: Request, cam: str = "rover", track: int = 0):
+async def detect(req: Request, cam: str = "rover", track: int = 0, imgsz: int = 0):
     img = cv2.imdecode(np.frombuffer(await req.body(), np.uint8), 1)
     if img is None: raise HTTPException(400, "body is not a JPEG")
-    return run(cam, img, bool(track), None)
+    return run(cam, img, bool(track), None, imgsz or None)
 
 @app.get("/latest")
 def get_latest(cam: str = "rover"):

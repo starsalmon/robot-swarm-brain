@@ -43,16 +43,29 @@ class OrangeFinder:
         self.conf = conf
         self.vote = OrangeVote(need=4, window=6, max_jump=0.08)
         self.raw = []
+        import det_client as DC
+        self.DC = DC; self.det = DC.Detector("room"); self.src = "local"
 
     def __call__(self, frame):
         h, w = frame.shape[:2]
-        r = self.model.predict(frame, classes=[49], conf=self.conf, imgsz=1280, device=self.dev,
-                               half=self.dev != "cpu", verbose=False)[0]
-        self.raw = [(*map(float, b), float(c)) for b, c in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.conf.cpu().numpy())]
+        remote = None
+        if self.DC.ENABLED and self.det.healthy():
+            ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            if ok: remote = self.det.detect(jpg.tobytes(), imgsz=1280)
+        self.src = "remote" if remote is not None else "local"
+        if remote is not None:            # YOLO-World: only 'orange fruit' counts, decoy classes are ignored
+            self.raw = [(*d["bbox"], float(d["conf"])) for d in remote if d["cls"] in self.DC.ORANGE_NAMES and d["conf"] >= self.conf]
+        else:
+            self.raw = self.local(frame)
         hit = self.vote.update(self.raw, w, h)
         if hit is None:
             return None
         return hit["cx"] * w, hit["cy"] * h, hit["r"] * w
+
+    def local(self, frame):
+        r = self.model.predict(frame, classes=[49], conf=self.conf, imgsz=1280, device=self.dev,
+                               half=self.dev != "cpu", verbose=False)[0]
+        return [(*map(float, b), float(c)) for b, c in zip(r.boxes.xyxy.cpu().numpy(), r.boxes.conf.cpu().numpy())]
 
 
 def rover_candidates(hsv, orange_xy):
@@ -97,6 +110,7 @@ class Eye(Node):
         self.n = 0
         self.orange = OrangeFinder(MODEL, CONF)
         self.create_timer(0.12, self.tick)
+        self.create_timer(10.0, lambda: self.get_logger().info(f"orange det={self.orange.src}({self.orange.det.why}) raw={[round(r[4], 2) for r in self.orange.raw]}"))
         self.get_logger().info(f"room eye up, LifeCam /dev/video0, orange = YOLO class 49 on {self.orange.dev}")
 
     def on_cmd(self, m):
