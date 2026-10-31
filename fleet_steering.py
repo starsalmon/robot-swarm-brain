@@ -65,6 +65,10 @@ class WanderConfig:
     rear_stop_m: float = 0.12
     # Forward gate: nonzero forward lin needs a valid centred range newer than this.
     fwd_fresh_s: float = 0.5
+    # Smoothing (never more permissive): taper fwd lin to 0 as reading ages
+    # fwd_ramp_s → fwd_fresh_s, and cap forward acceleration (decel is instant).
+    fwd_ramp_s: float = 0.25
+    fwd_accel: float = 0.8
 
     @classmethod
     def from_env(cls, *, pan_center: float = 90.0) -> WanderConfig:
@@ -112,6 +116,8 @@ class WanderConfig:
             imu_cal_min_samples=int(os.environ.get('IMU_CAL_MIN_SAMPLES', '50')),
             rear_stop_m=float(os.environ.get('WANDER_REAR_STOP_M', '0.12')),
             fwd_fresh_s=float(os.environ.get('WANDER_FWD_FRESH_S', '0.5')),
+            fwd_ramp_s=float(os.environ.get('WANDER_FWD_RAMP_S', '0.25')),
+            fwd_accel=float(os.environ.get('WANDER_FWD_ACCEL', '0.8')),
         )
 
 
@@ -282,9 +288,15 @@ class WanderState:
     rear_stop_m: float = 0.12
     # Forward gate: nonzero forward lin needs a valid centred range newer than this.
     fwd_fresh_s: float = 0.5
+    # Smoothing (never more permissive): taper fwd lin to 0 as reading ages
+    # fwd_ramp_s → fwd_fresh_s, and cap forward acceleration (decel is instant).
+    fwd_ramp_s: float = 0.25
+    fwd_accel: float = 0.8
     _range_m: float = field(default_factory=lambda: float('nan'))
     _fwd_m: float = field(default_factory=lambda: float('nan'))
     _fwd_at: float = 0.0
+    _gate_lin: float = 0.0
+    _gate_at: float = 0.0
     _last_good_m: float = field(default_factory=lambda: float('nan'))
     _recent_close_m: float = field(default_factory=lambda: float('nan'))
     _recent_close_ms: float = 0.0
@@ -374,6 +386,8 @@ class WanderState:
             imu_cal_min_samples=cfg.imu_cal_min_samples,
             rear_stop_m=cfg.rear_stop_m,
             fwd_fresh_s=cfg.fwd_fresh_s,
+            fwd_ramp_s=cfg.fwd_ramp_s,
+            fwd_accel=cfg.fwd_accel,
         )
 
     def __post_init__(self) -> None:
@@ -969,13 +983,27 @@ class WanderState:
         Reverse and spin-in-place are untouched (rear ToF stop lives on-board).
         Returns the block reason when it zeroed a forward command, else None.
         """
+        now = time.monotonic()
+        dt = min(max(now - self._gate_at, 0.0), 0.2)
+        self._gate_at = now
         if msg.linear.x <= 0.0:
+            self._gate_lin = 0.0
             return None
-        reason = self.forward_block_reason()
-        if reason is None:
-            return None
-        msg.linear.x = 0.0
-        return reason
+        reason = self.forward_block_reason(now)
+        if reason is not None:
+            msg.linear.x = 0.0
+            self._gate_lin = 0.0
+            return reason
+        # Taper as the reading ages (reaches 0 exactly at fwd_fresh_s).
+        age = now - self._fwd_at
+        if age > self.fwd_ramp_s and self.fwd_fresh_s > self.fwd_ramp_s:
+            k = max(0.0, (self.fwd_fresh_s - age) / (self.fwd_fresh_s - self.fwd_ramp_s))
+            msg.linear.x *= k
+        # Accel cap up only; slowing is never delayed.
+        if self.fwd_accel > 0.0:
+            msg.linear.x = min(msg.linear.x, self._gate_lin + self.fwd_accel * dt)
+        self._gate_lin = msg.linear.x
+        return None
 
 
 @dataclass

@@ -175,19 +175,24 @@ class ExploreThenChase(Node):
         self.get_logger().info(f'allow_drive={allow}')
 
     def _publish(self, msg: Twist, mode: str) -> None:
-        """Single exit for /cmd_vel: forward gate applies to every mode."""
+        """Gate + publish (meet path)."""
+        self._gate_now(msg, mode)
+        self.pub.publish(msg)
+
+    def _gate_now(self, msg: Twist, mode: str) -> None:
+        """Forward gate for every mode (exactly one call per tick)."""
         zeroed = self._wander.gate_forward(msg) is not None
         reason = self._wander.forward_block_reason()
         now = time.monotonic()
-        if reason != self._gate_reason or (reason and now >= self._gate_log_at):
+        cat = reason.split(' ')[0:3] if reason else None
+        if cat != self._gate_reason or (reason and now >= self._gate_log_at):
             if reason:
                 act = 'zeroed forward cmd' if zeroed else 'forward held at 0'
                 self.get_logger().warn(f'forward gate [{mode}]: {act}, {reason}')
                 self._gate_log_at = now + 2.0
             elif self._gate_reason:
                 self.get_logger().info(f'forward gate [{mode}]: clear')
-            self._gate_reason = reason
-        self.pub.publish(msg)
+            self._gate_reason = cat
 
     def _tick(self) -> None:
         if not self._allow_drive or not self._drive_enable:
@@ -276,7 +281,7 @@ class ExploreThenChase(Node):
                     f'{self._wander.burst_duration_s:.1f}s'
                 )
 
-        self._wander.gate_forward(msg)  # gate before logging/CSV so logs show what is sent
+        self._gate_now(msg, mode)  # single gate call; logs/CSV show what is sent
         now = time.monotonic()
         if now >= self._drive_log_at:
             self._drive_log_at = now + 2.0
@@ -302,7 +307,7 @@ class ExploreThenChase(Node):
                     f'{self._wander.trap_level()}\n'
                 )
 
-        self._publish(msg, mode)
+        self.pub.publish(msg)
 
 
 def main() -> None:
