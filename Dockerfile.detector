@@ -1,0 +1,4 @@
+# YOLO-World open-vocabulary detector (detector/detector_server.py) on the NUC's RTX 2060; reuses the rover-follow image (torch cu126 + ultralytics).
+FROM rover-follow:jazzy
+ENV PIP_BREAK_SYSTEM_PACKAGES=1 YOLO_CONFIG_DIR=/models/yolo
+RUN pip3 install --no-cache-dir fastapi uvicorn ftfy regex "git+https://github.com/ultralytics/CLIP.git"

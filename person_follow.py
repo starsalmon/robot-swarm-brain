@@ -16,6 +16,8 @@ reverse ~backoff_m (odom/time-limited) then turn toward the last target bearing.
 """
 import argparse, json, math, os, sys, time
 import numpy as np, cv2
+import det_client as DC
+
 
 E = lambda k, d: type(d)(os.environ.get(k, d))
 CAP = 0.25
@@ -82,6 +84,13 @@ class Follower:
             return 1.7 * self.K[1, 1] / h, "bbox"
         return None, "-"
 
+    def det_remote(self, img):
+        if not DC.ENABLED: return None
+        if not hasattr(self, "det"): self.det = DC.Detector("rover")
+        if not self.det.healthy(): return None
+        ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return self.det.detect(jpg.tobytes(), track=True) if ok else None
+
     # ---- per frame ----
     def on_image(self, img, now):
         self.t_img = now
@@ -89,10 +98,21 @@ class Follower:
             k = img.shape[1] / self.W
             self.K = self.K.copy(); self.K[:2] *= k; self.W, self.H = img.shape[1], img.shape[0]
         # One YOLO pass for both COCO classes: 0 = person (followed), 49 = orange (the fruit, not orange paint).
-        r = self.model.track(img, persist=True, classes=[0, 49], conf=min(self.a.conf, ORANGE_CONF), imgsz=self.a.imgsz,
-                             tracker="bytetrack.yaml", half=True, verbose=False)[0]
         self.dets = []; self.fruit = []
-        if r.boxes is not None and len(r.boxes):
+        remote = self.det_remote(img)            # YOLO-World service (DET_REMOTE=1, healthy) or None -> local YOLO11
+        if remote is not None:
+            self.det_src = "remote"
+            for d in remote:
+                if d["cls"] in DC.ORANGE_NAMES and d["conf"] >= ORANGE_CONF:
+                    self.fruit.append((*d["bbox"], float(d["conf"])))
+                elif d["cls"] in DC.PERSON_NAMES and d["conf"] >= self.a.conf and d["id"] >= 0:
+                    self.dets.append((int(d["id"]), *d["bbox"], float(d["conf"])))
+            r = None
+        else:
+            self.det_src = "local"
+            r = self.model.track(img, persist=True, classes=[0, 49], conf=min(self.a.conf, ORANGE_CONF), imgsz=self.a.imgsz,
+                                 tracker="bytetrack.yaml", half=True, verbose=False)[0]
+        if r is not None and r.boxes is not None and len(r.boxes):
             cls = r.boxes.cls.int().cpu().numpy(); cf = r.boxes.conf.cpu().numpy(); xy = r.boxes.xyxy.cpu().numpy()
             ids = r.boxes.id.int().cpu().numpy() if r.boxes.id is not None else [-1] * len(cls)
             for b, i, c, k in zip(xy, ids, cf, cls):

@@ -357,6 +357,8 @@ services:
       - .:/opt/fleet:ro
       - ./captures:/captures
     environment:
+      - DET_REMOTE=0                   # 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
+      - DET_URL=http://127.0.0.1:8765  # NUC detector; Windows PC: http://192.168.2.44:8765
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - NVIDIA_VISIBLE_DEVICES=all
@@ -393,6 +395,8 @@ services:
     volumes:
       - .:/opt/fleet:ro
     environment:
+      - DET_REMOTE=0                   # 1 = use the YOLO-World detector when healthy, local YOLO11 otherwise
+      - DET_URL=http://127.0.0.1:8765  # NUC detector; Windows PC: http://192.168.2.44:8765
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - NVIDIA_VISIBLE_DEVICES=all
@@ -402,6 +406,31 @@ services:
       - SPEECH_PORT=8099
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash && exec python3 /opt/fleet/rover_speech.py"
+    restart: unless-stopped
+
+  # YOLO-World detector on the NUC GPU (never drives anything). Not started by default.
+  # Start: docker compose --profile detector up -d --build detector ; then DET_REMOTE=1 on rover-speech / rover-behaviour.
+  # Windows RTX 3080 alternative: run detector/ there and set DET_URL=http://192.168.2.44:8765 on the clients.
+  detector:
+    profiles: ["detector"]
+    build:
+      context: .
+      dockerfile: Dockerfile.detector
+    image: rover-detector:jazzy
+    container_name: detector
+    network_mode: host
+    runtime: nvidia
+    working_dir: /dweights
+    volumes:
+      - .:/opt/fleet:ro
+      - /data/swarm/detector-weights:/dweights
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - DET_MODEL=yolov8l-worldv2.pt   # 6 GB 2060 shared with 4 other GPU nodes; x-worldv2 if it fits/keeps fps
+      - DET_PORT=8765
+      - DET_PULL=0                     # brain POSTs its own frames; 1 = also pull both MJPEG streams for /latest
+    command: python3 /opt/fleet/detector/detector_server.py
     restart: unless-stopped
 
   # Start: docker compose --profile slam up -d rover-depth   (DEPTH_L8_SCALE=1 enables L8 scale correction)

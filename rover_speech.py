@@ -55,6 +55,7 @@ def main():
     from sensor_msgs.msg import CompressedImage
     from std_msgs.msg import Bool, String
     from ultralytics import YOLO
+    from det_client import Detector
 
     os.makedirs(OUT, exist_ok=True)
     for f in os.listdir(OUT):
@@ -66,7 +67,7 @@ def main():
     class S(Node):
         def __init__(s):
             super().__init__("rover_speech")
-            s.model = YOLO(MODEL); s.img = None; s.t_det = 0.0
+            s.model = YOLO(MODEL); s.img = None; s.t_det = 0.0; s.det = Detector("rover"); s.src = "local"
             s.hist = deque(maxlen=WIN); s.last_said = {}; s.t_any = -1e9; s.n = 0
             s.q = deque(); s.qlock = threading.Lock(); s.wcount = None
             s.nf = 0; s.raw = Counter(); s.why = "no frames yet"; s.t_img = 0.0; s.nfail = 0
@@ -74,6 +75,7 @@ def main():
             s.create_timer(10.0, s.report)
             s.create_subscription(CompressedImage, "/rover/camera/image_raw/compressed", lambda m: setattr(s, "img", m), qos_profile_sensor_data)
             s.create_subscription(String, "/rover/speech/say", lambda m: s.say(m.data), 10)
+            s.create_subscription(String, "/rover/find", s.on_find, 10)   # "find X": adds X to the YOLO-World vocabulary
             s.psaid = s.create_publisher(String, "/rover/speech/said", 10)
             s.pseen = s.create_publisher(String, "/rover/speech/object", 10)
             s.pwh = s.create_publisher(Bool, "/rover/whistle", 10)
@@ -121,11 +123,15 @@ def main():
             img = cv2.imdecode(np.frombuffer(m.data, np.uint8), 1)
             if img is None: return
             H, W = img.shape[:2]
-            r = s.model.predict(img, conf=CONF, verbose=False)[0]
+            remote = s.det.detect(m.data)            # YOLO-World service when DET_REMOTE=1 and healthy, else None
+            s.src = "remote" if remote is not None else "local"
+            if remote is not None:
+                boxes = [(d["cls"], d["bbox"]) for d in remote if d["conf"] >= CONF]
+            else:
+                r = s.model.predict(img, conf=CONF, verbose=False)[0]
+                boxes = [(s.model.names[int(b.cls)], b.xyxy[0].tolist()) for b in r.boxes]
             best, barea = None, 0.0
-            for b in r.boxes:
-                name = s.model.names[int(b.cls)]
-                x1, y1, x2, y2 = b.xyxy[0].tolist()
+            for name, (x1, y1, x2, y2) in boxes:
                 area = (x2 - x1) * (y2 - y1) / (W * H)
                 s.raw[f"{name}{'(skip)' if name in SKIP else ('' if area >= MIN_AREA else '(small)')}"] += 1
                 if name in SKIP: continue
@@ -145,9 +151,19 @@ def main():
 
         def report(s):
             seen = ", ".join(f"{k} x{v}" for k, v in s.raw.most_common(5)) or "nothing"
-            txt = f"{s.nf} frames/10s; seen: {seen}; now: {s.why}; queue {len(s.q)}"
+            txt = f"{s.nf} frames/10s [{s.src}, det {s.det.why}]; seen: {seen}; now: {s.why}; queue {len(s.q)}"
             s.get_logger().info(txt); m = String(); m.data = txt; s.pdbg.publish(m)
             s.nf = 0; s.raw.clear()
+
+        def on_find(s, m):
+            what = m.data.strip().lower()
+            for p in ("find ", "look for ", "where is ", "where's "):
+                if what.startswith(p): what = what[len(p):]
+            what = what.removeprefix("the ").removeprefix("my ").strip(" ?.")
+            if not what: return
+            v = Detector.set_vocab(add=[what])
+            s.get_logger().info(f"find '{what}': " + ("added to vocabulary" if v else "detector off/unreachable, COCO only"))
+            s.say(f"Looking for the {what}." if v else f"I can only look for everyday things right now.")
 
         def poll_whistle(s):
             try:

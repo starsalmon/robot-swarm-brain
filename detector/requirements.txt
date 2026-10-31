@@ -1,0 +1,6 @@
+# torch/torchvision come from the CUDA index first (see setup.ps1)
+ultralytics>=8.3,<9
+fastapi>=0.110
+uvicorn>=0.29
+opencv-python>=4.9
+numpy<2.3
