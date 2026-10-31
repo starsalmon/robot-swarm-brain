@@ -89,6 +89,19 @@ class ExploreThenChase(Node):
         self._gate_reason: str | None = None
         self._gate_log_at = 0.0
         self._cal_done_logged = False
+        # Wheel shaping: firmware mixes wheel = lin -/+ ang (normalised, 1.0 = 400 us).
+        self.MAX_FWD = float(os.environ.get("MAX_FWD", "0.18"))
+        self.WHEEL_MIN = float(os.environ.get("WHEEL_MIN", "0.06"))
+        # Spin watchdog
+        self.WD_FWD_GZ = float(os.environ.get("WD_FWD_GZ", "0.8"))
+        self.WD_FWD_S = float(os.environ.get("WD_FWD_S", "2.0"))
+        self.WD_TURN_ANG = float(os.environ.get("WD_TURN_ANG", "0.15"))
+        self.WD_TURN_GZ = float(os.environ.get("WD_TURN_GZ", "0.1"))
+        self.WD_TURN_S = float(os.environ.get("WD_TURN_S", "1.5"))
+        self.WD_HOLD_S = float(os.environ.get("WD_HOLD_S", "3.0"))
+        self._wd_fwd_since = None
+        self._wd_turn_since = None
+        self._wd_hold_until = 0.0
         self.create_timer(self.TICK, self._tick)
         self.get_logger().info(
             f'explore_then_chase: /{ns} forward wander → chase on IR'
@@ -179,9 +192,52 @@ class ExploreThenChase(Node):
         self._gate_now(msg, mode)
         self.pub.publish(msg)
 
+    def _shape_wheels(self, msg: Twist) -> None:
+        """Never raises forward. Avoids a stalled/reversing inside wheel on arcs."""
+        lin = min(float(msg.linear.x), self.MAX_FWD)
+        ang = float(msg.angular.z)
+        m = self.WHEEL_MIN
+        if lin > 0.0:
+            if lin < m:
+                lin = 0.0  # too slow to roll cleanly: drop forward (pivot or stop)
+            elif abs(ang) > lin:
+                lin = 0.0  # inside wheel would reverse: do a clean pivot instead
+            elif lin - abs(ang) < m:
+                # inside wheel below its minimum: straighten until it is at the minimum
+                ang = math.copysign(max(0.0, lin - m), ang) if ang else 0.0
+        if lin == 0.0 and ang != 0.0 and abs(ang) < m:
+            ang = math.copysign(m, ang) if abs(ang) >= m / 2 else 0.0
+        msg.linear.x = lin
+        msg.angular.z = ang
+
+    def _watchdog(self, msg: Twist, mode: str) -> None:
+        now = time.monotonic()
+        lin, ang, gz = float(msg.linear.x), float(msg.angular.z), abs(self._last_gz)
+        if now < self._wd_hold_until:
+            msg.linear.x = 0.0
+            msg.angular.z = 0.0
+            return
+        fwd = lin > 0.0 and abs(ang) < 0.3 and gz > self.WD_FWD_GZ
+        self._wd_fwd_since = (self._wd_fwd_since or now) if fwd else None
+        turn = abs(lin) < 0.02 and abs(ang) >= self.WD_TURN_ANG and gz < self.WD_TURN_GZ
+        self._wd_turn_since = (self._wd_turn_since or now) if turn else None
+        why = None
+        if self._wd_fwd_since and now - self._wd_fwd_since > self.WD_FWD_S:
+            why = f"cmd mostly forward (lin={lin:+.2f} ang={ang:+.2f}) but IMU |gz|={gz:.2f}>{self.WD_FWD_GZ} for >{self.WD_FWD_S}s"
+        elif self._wd_turn_since and now - self._wd_turn_since > self.WD_TURN_S:
+            why = f"cmd turn ang={ang:+.2f} but IMU |gz|={gz:.2f}<{self.WD_TURN_GZ} for >{self.WD_TURN_S}s"
+        if why:
+            self.get_logger().error(f"spin watchdog [{mode}]: motion/IMU mismatch: {why}; zero for {self.WD_HOLD_S}s")
+            self._wd_hold_until = now + self.WD_HOLD_S
+            self._wd_fwd_since = self._wd_turn_since = None
+            msg.linear.x = 0.0
+            msg.angular.z = 0.0
+
     def _gate_now(self, msg: Twist, mode: str) -> None:
         """Forward gate for every mode (exactly one call per tick)."""
         zeroed = self._wander.gate_forward(msg) is not None
+        self._shape_wheels(msg)
+        self._watchdog(msg, mode)
         reason = self._wander.forward_block_reason()
         now = time.monotonic()
         cat = reason.split(' ')[0:3] if reason else None
