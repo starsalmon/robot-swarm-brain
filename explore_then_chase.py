@@ -13,6 +13,7 @@ import urllib.request
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, Range
 from std_msgs.msg import Bool, Float32, UInt8
 
@@ -32,9 +33,9 @@ class ExploreThenChase(Node):
         self._meet = MeetSpinController(fleet_id=fleet_id)
         self._meet_was_active = False
         self.pub = self.create_publisher(Twist, f'/{ns}/cmd_vel', 10)
-        self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, 10)
-        self.create_subscription(Range, f'/{ns}/tof/rear', self._on_rear_tof, 10)
-        self.create_subscription(Imu, f'/{ns}/' + os.environ.get('IMU_TOPIC', 'imu').strip('/'), self._on_imu, 10)
+        self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, qos_profile_sensor_data)
+        self.create_subscription(Range, f'/{ns}/tof/rear', self._on_rear_tof, qos_profile_sensor_data)
+        self.create_subscription(Imu, f'/{ns}/' + os.environ.get('IMU_TOPIC', 'imu').strip('/'), self._on_imu, qos_profile_sensor_data)
         self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_ir, 10)
         self.create_subscription(UInt8, f'/{ns}/ir/peer', self._on_ir_peer, 10)
         self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
