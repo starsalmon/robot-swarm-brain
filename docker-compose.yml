@@ -52,6 +52,46 @@ services:
       exec python3 /opt/fleet/explore_then_chase.py"
     restart: unless-stopped
 
+  # Beeper (bot3) — explore + person follow (camera via detector). NOT auto-started: profile "beeper".
+  # Obstacle checks always apply (brain apply_sonar_stop + forward gate on /bot3/sonar/range, and firmware ToF gate).
+  beeper-brain:
+    image: ros:jazzy-ros-base
+    container_name: beeper-brain
+    network_mode: host
+    profiles: ["beeper"]
+    depends_on:
+      - microros-agent
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - BOT_NS=bot3
+      - FLEET_IR_ID=3
+      - IMU_TOPIC=imu/data
+      - REQUIRE_IMU=1
+      - WANDER_GYRO_SIGN=${BEEPER_GYRO_SIGN:-1}
+      - WANDER_CRUISE=0.16
+      - WANDER_CRUISE_MIN=0.12
+      - WANDER_CRUISE_MAX=0.18
+      - MAX_FWD=0.18
+      - WHEEL_MIN=0.06
+      - WANDER_BURST_ENABLE=0
+      - WANDER_STOP_M=0.18
+      - WANDER_SLOW_M=0.35
+      - WANDER_CLOSE_M=0.25
+      - PERSON_FOLLOW=1
+      - FOLLOW_CAM=beeper
+      - DET_URL=http://127.0.0.1:8765
+      - FOLLOW_STOP_HFRAC=${BEEPER_FOLLOW_STOP_HFRAC:-0.60}
+      - FOLLOW_CRUISE=0.16
+      - FOLLOW_LOST_S=3.0
+      - DRIVE_CSV=/tmp/beeper-drive-log.csv
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 /opt/fleet/explore_then_chase.py"
+    restart: unless-stopped
+
   # Tracked bot (bot2) — wander on connect (no Go button). Slow until ToF is live.
   tracked-brain:
     image: ros:jazzy-ros-base

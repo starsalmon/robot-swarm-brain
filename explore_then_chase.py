@@ -2,10 +2,13 @@
 """Wander forward on sonar; chase rover IR beacon when TSOP sees it."""
 from __future__ import annotations
 
+import json
 import math
 import os
 import socket
+import threading
 import time
+import urllib.request
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -22,7 +25,7 @@ class ExploreThenChase(Node):
 
     def __init__(self) -> None:
         ns = os.environ.get('BOT_NS', 'bot1').strip('/')
-        fleet_ids = {'rover': 0, 'bot0': 0, 'bot1': 1, 'bot2': 2}
+        fleet_ids = {'rover': 0, 'bot0': 0, 'bot1': 1, 'bot2': 2, 'bot3': 3}
         fleet_id = int(os.environ.get('FLEET_IR_ID', fleet_ids.get(ns, 1)))
         pan_center = float(os.environ.get('PAN_CENTER', '90'))
         super().__init__('explore_then_chase')
@@ -31,7 +34,7 @@ class ExploreThenChase(Node):
         self.pub = self.create_publisher(Twist, f'/{ns}/cmd_vel', 10)
         self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, 10)
         self.create_subscription(Range, f'/{ns}/tof/rear', self._on_rear_tof, 10)
-        self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, 10)
+        self.create_subscription(Imu, f'/{ns}/' + os.environ.get('IMU_TOPIC', 'imu').strip('/'), self._on_imu, 10)
         self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_ir, 10)
         self.create_subscription(UInt8, f'/{ns}/ir/peer', self._on_ir_peer, 10)
         self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
@@ -68,6 +71,22 @@ class ExploreThenChase(Node):
         self._notify_host = os.environ.get('ROVER_NOTIFY_HOST', 'lego-rover.local')
         self._notify_port = int(os.environ.get('ROVER_NOTIFY_PORT', '4242'))
         self._mode = 'wander'
+        # Person follow (camera, via detector /latest). Obstacle checks still apply: apply_sonar_stop + _gate_now.
+        self.FOLLOW = os.environ.get('PERSON_FOLLOW', '0').strip().lower() in ('1', 'true', 'on', 'yes')
+        self.FOLLOW_CAM = os.environ.get('FOLLOW_CAM', ns)
+        self.FOLLOW_URL = os.environ.get('DET_URL', 'http://127.0.0.1:8765').rstrip('/')
+        self.FOLLOW_CONF = float(os.environ.get('FOLLOW_CONF', '0.45'))
+        self.FOLLOW_STOP_HFRAC = float(os.environ.get('FOLLOW_STOP_HFRAC', '0.60'))  # bbox h / frame h at ~1 m (tune)
+        self.FOLLOW_CRUISE = float(os.environ.get('FOLLOW_CRUISE', '0.16'))
+        self.FOLLOW_K_ANG = float(os.environ.get('FOLLOW_K_ANG', '1.2'))
+        self.FOLLOW_MAX_ANG = float(os.environ.get('FOLLOW_MAX_ANG', '0.5'))
+        self.FOLLOW_ALIGN = float(os.environ.get('FOLLOW_ALIGN', '0.25'))  # |x err| above this: turn only
+        self.FOLLOW_LOST_S = float(os.environ.get('FOLLOW_LOST_S', '3.0'))
+        self.FOLLOW_STALE_S = float(os.environ.get('FOLLOW_STALE_S', '1.0'))
+        self._person = None          # (x_err -0.5..0.5, h_frac, t_mono)
+        self._person_lock = threading.Lock()
+        if self.FOLLOW:
+            threading.Thread(target=self._det_loop, daemon=True).start()
         self._chase_started_at: float | None = None
         self._chase_cooldown_until = 0.0
         self._drive_log_at = 0.0
@@ -107,6 +126,37 @@ class ExploreThenChase(Node):
             f'explore_then_chase: /{ns} forward wander → chase on IR'
             + ('' if self._require_imu else ' (no IMU gate)')
         )
+
+    def _det_loop(self) -> None:
+        url = f'{self.FOLLOW_URL}/latest?cam={self.FOLLOW_CAM}'
+        while rclpy.ok():
+            try:
+                with urllib.request.urlopen(url, timeout=1.0) as r:
+                    d = json.load(r)
+                w, h = float(d.get('w') or 0), float(d.get('h') or 0)
+                age = time.time() - float(d.get('ts') or 0)  # PC clock
+                best = None
+                if w > 0 and h > 0 and age < self.FOLLOW_STALE_S:
+                    for det in d.get('dets') or []:
+                        if det.get('cls') != 'person' or float(det.get('conf', 0)) < self.FOLLOW_CONF:
+                            continue
+                        x1, y1, x2, y2 = det['bbox']
+                        hf = (y2 - y1) / h
+                        if best is None or hf > best[1]:
+                            best = ((x1 + x2) / 2.0 / w - 0.5, hf)
+                if best is not None:
+                    with self._person_lock:
+                        self._person = (best[0], best[1], time.monotonic())
+            except Exception:
+                pass
+            time.sleep(0.1)
+
+    def _person_now(self):
+        with self._person_lock:
+            p = self._person
+        if p is None or time.monotonic() - p[2] > self.FOLLOW_LOST_S:
+            return None, False
+        return p, time.monotonic() - p[2] < 0.5   # (last seen, seen-fresh)
 
     def _on_range(self, msg: Range) -> None:
         self._wander.update_range(float(msg.range), self._pan_deg)
@@ -308,11 +358,12 @@ class ExploreThenChase(Node):
         if not chasing:
             self._chase_started_at = None
 
-        mode = 'chase' if chasing else 'wander'
+        person, person_fresh = (self._person_now() if (self.FOLLOW and not chasing) else (None, False))
+        mode = 'chase' if chasing else ('follow' if person is not None else 'wander')
         if mode != self._mode:
             self._mode = mode
             self.get_logger().info(f'mode → {mode}')
-            if chasing:
+            if mode != 'wander':
                 self._wander._heading.release()
             else:
                 self._wander._heading.reset_target()
@@ -326,6 +377,16 @@ class ExploreThenChase(Node):
                 cfg=self._ir_cfg,
             )
             self._wander.apply_sonar_stop(msg)
+            self._wander._last_driving = msg.linear.x > 0.05
+        elif mode == 'follow':
+            msg = Twist()
+            xe, hf, _ = person
+            if person_fresh:
+                msg.angular.z = max(-self.FOLLOW_MAX_ANG, min(self.FOLLOW_MAX_ANG, -self.FOLLOW_K_ANG * xe))
+                if abs(xe) < self.FOLLOW_ALIGN:
+                    msg.linear.x = self.FOLLOW_CRUISE * max(0.0, min(1.0, (self.FOLLOW_STOP_HFRAC - hf) / 0.25))
+            # not fresh (briefly lost): hold still until FOLLOW_LOST_S, then wander
+            self._wander.apply_sonar_stop(msg)   # obstacle stop ALWAYS (plus _gate_now below)
             self._wander._last_driving = msg.linear.x > 0.05
         else:
             msg = Twist()
