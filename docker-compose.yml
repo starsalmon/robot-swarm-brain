@@ -79,9 +79,9 @@ services:
       - MAX_FWD=0.18
       - WHEEL_MIN=0.06
       - WANDER_BURST_ENABLE=0
-      - WANDER_STOP_M=0.18
-      - WANDER_SLOW_M=0.35
-      - WANDER_CLOSE_M=0.25
+      - WANDER_STOP_M=0.10
+      - WANDER_SLOW_M=0.13
+      - WANDER_CLOSE_M=0.12
       - PERSON_FOLLOW=1
       - FOLLOW_CAM=beeper
       - DET_URL=http://127.0.0.1:8765
