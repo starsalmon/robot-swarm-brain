@@ -72,6 +72,7 @@ class ExploreThenChase(Node):
         self._notify_host = os.environ.get('ROVER_NOTIFY_HOST', 'lego-rover.local')
         self._notify_port = int(os.environ.get('ROVER_NOTIFY_PORT', '4242'))
         self._mode = 'wander'
+        self.CMD_ANG_SCALE = float(os.environ.get('CMD_ANG_SCALE', '1.0'))
         # Person follow (camera, via detector /latest). Obstacle checks still apply: apply_sonar_stop + _gate_now.
         self.FOLLOW = os.environ.get('PERSON_FOLLOW', '0').strip().lower() in ('1', 'true', 'on', 'yes')
         self.FOLLOW_CAM = os.environ.get('FOLLOW_CAM', ns)
@@ -436,6 +437,7 @@ class ExploreThenChase(Node):
                     f'{self._wander.trap_level()}\n'
                 )
 
+        msg.angular.z *= self.CMD_ANG_SCALE  # firmware takes rad/s; brain ang is ~power
         self.pub.publish(msg)
 
 

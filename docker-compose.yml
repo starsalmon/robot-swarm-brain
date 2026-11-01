@@ -69,6 +69,7 @@ services:
       - BOT_NS=bot3
       - FLEET_IR_ID=3
       - IMU_TOPIC=imu/data
+      - CMD_ANG_SCALE=${BEEPER_ANG_SCALE:-12}
       - REQUIRE_IMU=${BEEPER_REQUIRE_IMU:-0}
       - WANDER_GYRO_SIGN=${BEEPER_GYRO_SIGN:-1}
       - WANDER_CRUISE=0.16
