@@ -160,7 +160,18 @@ class ExploreThenChase(Node):
         return p, time.monotonic() - p[2] < 0.5   # (last seen, seen-fresh)
 
     def _on_range(self, msg: Range) -> None:
-        self._wander.update_range(float(msg.range), self._pan_deg)
+        # No-target (>= max_range) counts as clear only after 3 in a row and 0.5 s after a real reading < 0.3 m.
+        r = float(msg.range); now = time.monotonic()
+        mx = float(msg.max_range) if msg.max_range > 0 else 2.0
+        if r >= mx - 1e-3:
+            self._nt_streak = getattr(self, "_nt_streak", 0) + 1
+            if self._nt_streak < 3 or now - getattr(self, "_last_close", -1e9) < 0.5:
+                r = float("nan")
+        else:
+            self._nt_streak = 0
+            if 0 < r < 0.3:
+                self._last_close = now
+        self._wander.update_range(r, self._pan_deg)
 
     def _on_rear_tof(self, msg: Range) -> None:
         self._wander.update_rear(float(msg.range))
