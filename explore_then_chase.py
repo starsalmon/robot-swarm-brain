@@ -17,6 +17,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, Range
 from std_msgs.msg import Bool, Float32, UInt8
 
+from cmd_vel_slew import CmdVelSlew
 from fleet_meet_spin import MeetSpinController
 from fleet_steering import IrSteerConfig, WanderConfig, WanderState, steer_ir_beacon
 
@@ -116,6 +117,9 @@ class ExploreThenChase(Node):
         self.WHEEL_MIN = float(os.environ.get("WHEEL_MIN", "0.06"))
         # In-place turn floor (brain power units, same as ang): pivots below this barely rotate. 0 = off.
         self.PIVOT_MIN = float(os.environ.get("PIVOT_MIN", "0"))
+        # Rover-style cmd_vel slew (opt-in): before the gates, so obstacle stops stay immediate.
+        self._slew = CmdVelSlew.from_env() if os.environ.get("CMD_SLEW", "0") == "1" else None
+        self._slew_t = time.monotonic()
         # Spin watchdog
         self.WD_FWD_GZ = float(os.environ.get("WD_FWD_GZ", "0.8"))
         self.WD_FWD_S = float(os.environ.get("WD_FWD_S", "2.0"))
@@ -303,7 +307,16 @@ class ExploreThenChase(Node):
 
     def _gate_now(self, msg: Twist, mode: str) -> None:
         """Forward gate for every mode (exactly one call per tick)."""
+        if self._slew is not None:
+            t = time.monotonic()
+            dt = t - self._slew_t
+            self._slew_t = t
+            if dt <= 0.0 or dt > 0.2:
+                dt = 0.05
+            msg.linear.x, msg.angular.z = self._slew.step(float(msg.linear.x), float(msg.angular.z), dt)
         zeroed = self._wander.gate_forward(msg) is not None
+        if zeroed and self._slew is not None:
+            self._slew.lin_out = min(self._slew.lin_out, 0.0)  # gate cut is a hard stop, no ramp
         self._shape_wheels(msg)
         self._watchdog(msg, mode)
         reason = self._wander.forward_block_reason()
@@ -320,6 +333,8 @@ class ExploreThenChase(Node):
 
     def _tick(self) -> None:
         if not self._allow_drive or not self._drive_enable:
+            if self._slew is not None:
+                self._slew.reset()
             self.pub.publish(Twist())
             return
         meet_cmd = self._meet.tick()

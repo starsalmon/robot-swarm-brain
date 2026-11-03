@@ -550,8 +550,13 @@ class WanderState:
 
         if not math.isfinite(range_m) or range_m <= 0.0:
             # NaN / inf / 0 / -1 = no echo or fault: forward is NOT clear.
+            # FWD_INVALID_HOLD_S (opt-in, default 0): ride through a single dropout by keeping the
+            # last real reading (never a clearer one) for at most that long; its age still counts
+            # against fwd_fresh_s, and the robot's own ToF gate still blocks forward on -1.
             self._range_m = float('nan')
-            self._fwd_m = float('nan')
+            hold = float(os.environ.get('FWD_INVALID_HOLD_S', '0'))
+            if not (hold > 0.0 and math.isfinite(self._fwd_m) and now - self._fwd_at <= hold):
+                self._fwd_m = float('nan')
             self._last_range_ms = now
             return
 
