@@ -22,6 +22,11 @@ from fleet_meet_spin import MeetSpinController
 from fleet_steering import IrSteerConfig, WanderConfig, WanderState, steer_ir_beacon
 
 
+ALLOW_MAX_AGE_S = float(os.environ.get('ALLOW_MAX_AGE_S', '1.5'))
+ALLOW_FREEZE_S = 0.6
+ALLOW_RESUME_HOLD_S = 1.0
+
+
 class ExploreThenChase(Node):
     TICK = 0.05
 
@@ -104,8 +109,15 @@ class ExploreThenChase(Node):
             'no',
             'off',
         )
-        self._allow_drive = True
+        # Start OFF; need a fresh True. Bridge republishes every 0.5 s, so a value older than
+        # ALLOW_MAX_AGE_S is stale. After a freeze (docker pause / stall) ignore allow msgs for
+        # ALLOW_RESUME_HOLD_S: queued pre-pause True was driving ~0.3 s on unpause (2026-11-04).
+        self._allow_drive = False
+        self._allow_rx = 0.0
+        self._allow_hold_until = 0.0
+        self._hb = time.monotonic()
         self.create_subscription(Bool, '/fleet/allow_drive', self._on_allow_drive, 10)
+        self.create_timer(0.1, self._heartbeat)
         if not self._require_imu:
             self._wander._heading.force_ready()
         self._cal_log_at = 0.0
@@ -250,8 +262,28 @@ class ExploreThenChase(Node):
         self._pan_deg = float(msg.data)
         self._wander._pan_deg = self._pan_deg
 
+    def _check_freeze(self) -> None:
+        now = time.monotonic()
+        if now - self._hb > ALLOW_FREEZE_S:
+            self._allow_hold_until = now + ALLOW_RESUME_HOLD_S
+            if self._allow_drive:
+                self.get_logger().warn(f'resumed after {now - self._hb:.1f}s freeze: allow_drive=False until fresh True')
+            self._allow_drive = False
+        self._hb = now
+
+    def _heartbeat(self) -> None:
+        self._check_freeze()
+        if self._allow_drive and time.monotonic() - self._allow_rx > ALLOW_MAX_AGE_S:
+            self._allow_drive = False
+            self.get_logger().warn('allow_drive stale -> False')
+
     def _on_allow_drive(self, msg: Bool) -> None:
+        self._check_freeze()
+        now = time.monotonic()
+        if now < self._allow_hold_until:
+            return  # queued during freeze
         allow = bool(msg.data)
+        self._allow_rx = now
         if allow == self._allow_drive:
             return
         self._allow_drive = allow
@@ -332,6 +364,7 @@ class ExploreThenChase(Node):
             self._gate_reason = cat
 
     def _tick(self) -> None:
+        self._check_freeze()
         if not self._allow_drive or not self._drive_enable:
             if self._slew is not None:
                 self._slew.reset()
