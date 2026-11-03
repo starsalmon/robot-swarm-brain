@@ -114,6 +114,8 @@ class ExploreThenChase(Node):
         # Wheel shaping: firmware mixes wheel = lin -/+ ang (normalised, 1.0 = 400 us).
         self.MAX_FWD = float(os.environ.get("MAX_FWD", "0.18"))
         self.WHEEL_MIN = float(os.environ.get("WHEEL_MIN", "0.06"))
+        # In-place turn floor (brain power units, same as ang): pivots below this barely rotate. 0 = off.
+        self.PIVOT_MIN = float(os.environ.get("PIVOT_MIN", "0"))
         # Spin watchdog
         self.WD_FWD_GZ = float(os.environ.get("WD_FWD_GZ", "0.8"))
         self.WD_FWD_S = float(os.environ.get("WD_FWD_S", "2.0"))
@@ -271,6 +273,8 @@ class ExploreThenChase(Node):
                 ang = math.copysign(max(0.0, lin - m), ang) if ang else 0.0
         if lin == 0.0 and ang != 0.0 and abs(ang) < m:
             ang = math.copysign(m, ang) if abs(ang) >= m / 2 else 0.0
+        if lin == 0.0 and ang != 0.0 and abs(ang) < self.PIVOT_MIN:
+            ang = math.copysign(self.PIVOT_MIN, ang)  # per-wheel floor for in-place turns
         msg.linear.x = lin
         msg.angular.z = ang
 

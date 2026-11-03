@@ -78,6 +78,7 @@ services:
       - WANDER_CRUISE_MAX=0.18
       - MAX_FWD=0.18
       - WHEEL_MIN=0.06
+      - PIVOT_MIN=${BEEPER_PIVOT_MIN:-0.40}  # in-place turn floor (~46% wheel power at ANG_SCALE 10)
       - WANDER_BURST_ENABLE=0
       - WANDER_STOP_M=0.10
       - WANDER_SLOW_M=0.13
