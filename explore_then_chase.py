@@ -129,6 +129,9 @@ class ExploreThenChase(Node):
         self.WHEEL_MIN = float(os.environ.get("WHEEL_MIN", "0.06"))
         # In-place turn floor (brain power units, same as ang): pivots below this barely rotate. 0 = off.
         self.PIVOT_MIN = float(os.environ.get("PIVOT_MIN", "0"))
+        # Forward floor (brain lin units, before CMD_LIN_SCALE): any surviving lin>0 is raised to this.
+        # Applied after the gates, so a gated/stop 0 stays 0. 0 = off.
+        self.FWD_MIN = float(os.environ.get("FWD_MIN", "0"))
         # Rover-style cmd_vel slew (opt-in): before the gates, so obstacle stops stay immediate.
         self._slew = CmdVelSlew.from_env() if os.environ.get("CMD_SLEW", "0") == "1" else None
         self._slew_t = time.monotonic()
@@ -311,6 +314,8 @@ class ExploreThenChase(Node):
             ang = math.copysign(m, ang) if abs(ang) >= m / 2 else 0.0
         if lin == 0.0 and ang != 0.0 and abs(ang) < self.PIVOT_MIN:
             ang = math.copysign(self.PIVOT_MIN, ang)  # per-wheel floor for in-place turns
+        if 0.0 < lin < self.FWD_MIN:
+            lin = self.FWD_MIN  # forward wheel-power floor (dead zone ~0.30)
         msg.linear.x = lin
         msg.angular.z = ang
 

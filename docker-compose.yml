@@ -79,6 +79,7 @@ services:
       - MAX_FWD=0.18
       - WHEEL_MIN=0.06
       - PIVOT_MIN=${BEEPER_PIVOT_MIN:-0.30}  # in-place turn floor (~35% wheel power at ANG_SCALE 10)
+      - FWD_MIN=${BEEPER_FWD_MIN:-0.12}  # 0.12 x LIN_SCALE 1.5 = 0.18 m/s ~= 0.40 wheel power at 3.4 V (dead zone ~0.30)
       - CMD_SLEW=1  # Rover cmd_vel_slew rates (lin 0.28/0.22, ang 0.08/0.14 per s)
       - FWD_INVALID_HOLD_S=0.3  # ride through single ToF -1 dropouts
       - WANDER_BURST_ENABLE=0
