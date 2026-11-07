@@ -28,7 +28,7 @@ The drive board only drives while `/rover/session` is true and `/cmd_vel` is fre
    - **Inputs:** the 8 L8 columns (column 0 = left) plus the front, front_left, front_right, left and right ToF. If none is fresh it stops.
    - **Speed:** `EXPLORE_CRUISE` 18% in the open. Speed scales down with the clearance ahead from 0.9 m, to at least 8%.
    - **Steering:** it is pulled toward the most open direction and pushed off side walls closer than 0.30 m, at up to `EXPLORE_WMAX` 12%. When heading at a wall it commits early to one turn direction. A slow random wander makes it curve in open space instead of driving dead straight.
-   - **Blocked** (under 0.25 m ahead): it spins on the spot toward the more open side at `EXPLORE_PIVOT_W` 14%, with hysteresis so it does not flip-flop.
+   - **Blocked** (under 0.25 m ahead): it spins on the spot toward the more open side at `EXPLORE_PIVOT_W` 14%, with hysteresis so it does not flip-flop. Side choice uses fresh `left`/`front_left` vs `right`/`front_right` only (missing side is not treated as open). If the committed pivot is vetoed by the hard guard (`GUARD_M` 0.20 m), behaviour flips toward a provably clear side or reverses briefly when boxed — guards are not disabled.
    - **Bump / stall backup** (`/rover/bump`, `/rover/stall`): it reverses at 14% for 0.6 s, then spins toward the open side for 0.9-3 s, then carries on exploring. It never just stops.
 
 A final safety check stops forward motion into anything under 0.20 m, unless that thing is the centred orange being approached.
@@ -40,6 +40,7 @@ Status JSON is published on `/rover/behaviour/status`. It includes the state, th
 - `tools/test_orange_offline.py img...` runs the old HSV finder against YOLO + vote on still images.
 - `tools/test_rover_track.py frame.jpg` checks that the overhead Rover track ignores static blobs and confirms a moving one.
 - `tools/test_cam_gate.py` checks the camera/person freshness gate.
+- `tools/test_guard_explore.py` checks blocked-front pivot, guard flip/reverse unstick, and stale ToF stop.
 - `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
 - `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 
