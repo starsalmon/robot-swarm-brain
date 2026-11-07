@@ -25,6 +25,7 @@ import person_follow as PF
 from orange_vote import OrangeVote
 from rover_explore import Explorer
 from cam_gate import CamGate
+from rover_guard_escape import unstick_explore
 
 E = PF.E
 
@@ -427,7 +428,17 @@ def main():
                 if s.tgt_since is not None:                       # person maybe: ease off while the tracker confirms
                     v *= 0.6; why += " (person? confirming)"
                 if now - f.t_img > 2.0: why += f" (camera offline {min(99, now - f.t_img):.0f}s)"
+            v_req, w_req = v, w
             v, w, why = s.guard(now, v, w, why)                   # no mode bypasses the obstacle guard
+            if s.state == "EXPLORE" and s.allow and s.go:
+                rear = s.f.rear if getattr(s.f, "rear", None) is not None and now - getattr(s.f, "t_rear", -1e9) < 0.6 else None
+                v2, w2, tag = unstick_explore(
+                    v, w, v_req, w_req, s.side, now, getattr(s, "g_ahead", 9.0),
+                    guard_m=GUARD_M, pivot_w=s.x.PIVOT_W, rear_m=rear, rear_fresh=rear is not None,
+                )
+                if tag:
+                    v, w, why = v2, w2, f"{why} | {tag}"
+                    v, w, why = s.guard(now, v, w, why)
             if not s.go:
                 v, w, why = 0.0, 0.0, "stopped — press Go"
             s.cmd = (float(v), float(w))

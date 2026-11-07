@@ -13,6 +13,8 @@ Speeds are usable-power fractions (same units as /cmd_vel to the T-Display). Pos
 """
 import math, random
 
+from rover_guard_escape import GUARD_M_DEFAULT, clear_side, near_side, pick_open_side
+
 E = lambda k, d: type(d)(__import__("os").environ.get(k, d))
 
 
@@ -53,13 +55,17 @@ class Explorer:
             if now - t < s.STALE: out.append((b, r))
         return out
 
+    def _side_map(s, now):
+        side = {}
+        for nm in ("left", "right", "front_left", "front_right"):
+            ry = s.rays.get(nm)
+            if ry and now - ry[2] < s.STALE:
+                side[nm] = (None if ry[1] <= 0.02 or ry[1] > 4.0 else ry[1], now)
+        return side
+
     def _open_side(s, now):
-        rays = s._all_rays(now)
-        L = [r for b, r in rays if b > 0.05]; R = [r for b, r in rays if b < -0.05]
-        if not L or not R: return None
-        mL, mR = sum(L) / len(L), sum(R) / len(R)
-        if abs(mL - mR) < 0.05: return None
-        return 1.0 if mL > mR else -1.0
+        guard_m = float(E("GUARD_M", GUARD_M_DEFAULT))
+        return pick_open_side(s._side_map(now), now, guard_m=guard_m, fresh_s=min(s.STALE, 0.6))
 
     # ---- control ----
     def step(s, now):
@@ -83,7 +89,18 @@ class Explorer:
                 s.rec = None
         # blocked ahead: pivot toward the open side (committed until clear; hysteresis)
         if ahead < s.STOP or (s.pivot and ahead < s.STOP + 0.20):
-            if not s.pivot: s.pivot = s._open_side(now) or 1.0
+            guard_m = float(E("GUARD_M", GUARD_M_DEFAULT))
+            sm = s._side_map(now)
+            if not s.pivot:
+                s.pivot = pick_open_side(sm, now, guard_m=guard_m, fresh_s=min(s.STALE, 0.6))
+                if s.pivot is None:
+                    return s._out(-0.14, 0.0, f"explore: blocked {ahead:.2f} m, no fresh side gap, reverse", dt, hard=True)
+            elif s.pivot > 0 and near_side(sm, now, ("front_left", "left"), guard_m=guard_m):
+                if clear_side(sm, now, ("right", "front_right"), guard_m=guard_m):
+                    s.pivot = -1.0
+            elif s.pivot < 0 and near_side(sm, now, ("front_right", "right"), guard_m=guard_m):
+                if clear_side(sm, now, ("left", "front_left"), guard_m=guard_m):
+                    s.pivot = 1.0
             return s._out(0.0, s.pivot * s.PIVOT_W, f"explore: blocked {ahead:.2f} m, pivot {'left' if s.pivot > 0 else 'right'}", dt, hard=True)
         s.pivot = 0.0
         # forward speed from clearance ahead (and the +-45 diagonals, at half weight)
