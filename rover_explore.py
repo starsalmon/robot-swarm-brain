@@ -37,8 +37,10 @@ class Explorer:
         s.cols = [x if x > 0.02 else 4.0 for x in cols]; s.t_cols = now
 
     def on_range(s, name, bearing_deg, r, now):
-        if r is None or r != r: r = 4.0
-        s.rays[name] = (math.radians(bearing_deg), 4.0 if (r <= 0.02 or r > 4.0) else r, now)
+        if r is None or r != r or r <= 0.02 or r > 4.0:
+            s.rays.pop(name, None)
+            return
+        s.rays[name] = (math.radians(bearing_deg), float(r), now)
 
     def on_bump(s, now, why="bump"):
         if s.rec is None or now - s.rec["t"] > 1.5:
@@ -76,7 +78,15 @@ class Explorer:
         if not l8_ok and not front_ok:
             s.v = s.w = 0.0; s.rec = None
             return 0.0, 0.0, "explore: no fresh ToF, stopped"
-        ahead = min([r for b, r in rays if abs(b) <= math.radians(16)] or [4.0])
+        cone = [r for b, r in rays if abs(b) <= math.radians(16)]
+        side_lr = []
+        for nm in ("left", "right"):
+            ry = s.rays.get(nm)
+            if ry and now - ry[2] < s.STALE:
+                side_lr.append(ry[1])
+        ahead = min(cone) if cone else (min(side_lr) if side_lr else 4.0)
+        if ahead >= 3.5 and side_lr:
+            ahead = min(ahead, min(side_lr))
         # recovery after bump / stall: reverse 0.6 s, pivot away 0.9 s, resume
         if s.rec is not None:
             e = s.rec; age = now - e["t"]

@@ -41,6 +41,7 @@ Status JSON is published on `/rover/behaviour/status`. It includes the state, th
 - `tools/test_rover_track.py frame.jpg` checks that the overhead Rover track ignores static blobs and confirms a moving one.
 - `tools/test_cam_gate.py` checks the camera/person freshness gate.
 - `tools/test_guard_explore.py` checks blocked-front pivot, guard flip/reverse unstick, and stale ToF stop.
+- `tools/test_tof_trust.py` checks motion-based ToF trust (G6 jsonl: frozen diagonals while side ToF moves).
 - `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
 - `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 
