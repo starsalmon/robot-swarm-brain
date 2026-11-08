@@ -25,7 +25,7 @@ The drive board only drives while `/rover/session` is true and `/cmd_vel` is fre
    - Returns to explore after the person has been lost for 5 s, or straight away if the camera goes stale. A silent camera's last detections are cleared.
    - While a person is only a candidate, explore continues at 60% speed rather than stopping.
 3. **EXPLORE** - `rover_explore.py`, continuous steering:
-   - **Inputs:** the 8 L8 columns (column 0 = left) plus the front, front_left, front_right, left and right ToF. If none is fresh it stops.
+   - **Inputs:** the 8 L8 columns (column 0 = left) plus the front, front_left, front_right, left and right ToF. Geometry and minimum trusted forward coverage: `rover_tof_geometry.py`. Lateral ToF must not set forward cruise clearance. If no trusted forward picture (fresh L8 centre and/or non-suspect nose/diagonal beams in the forward arc), explore holds `v=0` (lateral steer/pivot only). Suspect republish: diagonal stamps advance with fixed range while peer channels change — withhold forward beams (diagnostic: `tof_diag` in 1 Hz log). `header.stamp` is message time from the ESP publisher (not verified new sample). Producer firmware: `lego-rover-esp32` Pro S3 env `um_pros3_tof_microros` (separate repo).
    - **Speed:** `EXPLORE_CRUISE` 18% in the open. Speed scales down with the clearance ahead from 0.9 m, to at least 8%.
    - **Steering:** it is pulled toward the most open direction and pushed off side walls closer than 0.30 m, at up to `EXPLORE_WMAX` 12%. When heading at a wall it commits early to one turn direction. A slow random wander makes it curve in open space instead of driving dead straight.
    - **Blocked** (under 0.25 m ahead): it spins on the spot toward the more open side at `EXPLORE_PIVOT_W` 14%, with hysteresis so it does not flip-flop. Side choice uses fresh `left`/`front_left` vs `right`/`front_right` only (missing side is not treated as open). If the committed pivot is vetoed by the hard guard (`GUARD_M` 0.20 m), behaviour flips toward a provably clear side or reverses briefly when boxed — guards are not disabled.
@@ -41,6 +41,9 @@ Status JSON is published on `/rover/behaviour/status`. It includes the state, th
 - `tools/test_rover_track.py frame.jpg` checks that the overhead Rover track ignores static blobs and confirms a moving one.
 - `tools/test_cam_gate.py` checks the camera/person freshness gate.
 - `tools/test_guard_explore.py` checks blocked-front pivot, guard flip/reverse unstick, and stale ToF stop.
+- `tools/test_tof_trust.py` — stale forward + clear sides ⇒ no forward; parallel constant range; republish suspicion; G6 jsonl regression.
+
+**Uncertainty (G6 baseline):** Explore uses **+w = left** (nose CCW). Video described a rightward curve toward the sofa; status showed **steer +0.05…+0.11** while frozen **front_left** (1.218 m) likely biased VFH pull — reconcile with camera pose before tuning steer sign.
 - `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
 - `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 

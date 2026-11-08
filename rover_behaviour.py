@@ -26,6 +26,8 @@ from orange_vote import OrangeVote
 from rover_explore import Explorer
 from cam_gate import CamGate
 from rover_guard_escape import unstick_explore
+from rover_tof_forward import has_trusted_forward_coverage
+from rover_tof_trust import TofTrust, range_msg_stamp_sec
 
 E = PF.E
 
@@ -74,7 +76,7 @@ def main():
             s.create_subscription(Range, "/rover/tof/front", s.on_front, 10)
             s.create_subscription(Range, "/rover/sonar/range", lambda m: (setattr(f, "rear", m.range), setattr(f, "t_rear", time.monotonic())), qos_profile_sensor_data)
             for tp, b in (("left", 90), ("right", -90), ("front_left", 45), ("front_right", -45)):
-                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: (s.x.on_range(tp, b, m.range, time.monotonic()), s.on_side(tp, m.range)), 10)
+                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: s.on_tof(tp, b, m), 10)
             s.create_subscription(Bool, "/rover/bump", lambda m: m.data and s.x.on_bump(time.monotonic(), "bump"), 10)
             s.create_subscription(Bool, "/rover/stall", lambda m: m.data and s.x.on_bump(time.monotonic(), "stall"), 10)
             s.create_subscription(Odometry, "/rover/odom/wheel", s.on_odom, 10)
@@ -83,7 +85,7 @@ def main():
             s.create_subscription(Bool, "/fleet/allow_drive", s.on_allow, 10)
             s.create_subscription(Bool, "/rover/button", s.on_button, 10)
             s.t_whistle = -1e9
-            s.side = {}; s.t_guard_log = 0.0; s.guard_hits = 0
+            s.side = {}; s.t_cols = -1e9; s.tof_trust = TofTrust(); s.t_guard_log = 0.0; s.guard_hits = 0
             s.create_subscription(Bool, "/rover/whistle", s.on_whistle, 10)
             s.create_subscription(UInt8, "/rover/button_event", s.on_button_event, 10)
             s.create_subscription(Float32MultiArray, "/room/overhead", s.on_room, 10)
@@ -105,15 +107,32 @@ def main():
                 return
             s.n_frozen = 0; now = time.monotonic()
             s.f.l8cols_min = min([x for x in m.data if x > 0.02] or [9.0]); s.f.t_safe = now
-            s.cols = list(m.data); s.x.on_cols(s.cols, now)
+            s.cols = list(m.data); s.t_cols = now; s.x.on_cols(s.cols, now)
 
         def on_front(s, m):
             now = time.monotonic()
-            s.f.front = m.range if m.range > 0.02 else None; s.f.t_front = now
-            s.x.on_range("front", 0, m.range, now)
+            s.tof_trust.update("front", m.range, s.path, range_msg_stamp_sec(m), now)
+            sus = s.tof_trust.suspect_republish("front")
+            s.f.front = m.range if m.range > 0.02 and not sus else None
+            s.f.t_front = now
+            s.on_side("front", m.range)
+            s.x.on_range("front", 0, float("nan") if sus else m.range, now)
+
+        def on_tof(s, name, bearing, m):
+            now = time.monotonic()
+            s.tof_trust.update(name, m.range, s.path, range_msg_stamp_sec(m), now)
+            sus = s.tof_trust.suspect_republish(name)
+            diag_sus = any(s.tof_trust.suspect_republish(n) for n in ("front_left", "front_right"))
+            drop_explore = sus or (name in ("front_left", "front_right") and diag_sus)
+            s.on_side(name, m.range)
+            if name in ("front_left", "front_right") and diag_sus:
+                for dn, b in (("front_left", 45), ("front_right", -45)):
+                    s.x.on_range(dn, b, float("nan"), now)
+            else:
+                s.x.on_range(name, bearing, float("nan") if drop_explore else m.range, now)
 
         def on_side(s, name, r):
-            s.side[name] = (r if r > 0.02 else None, time.monotonic())
+            s.side[name] = (r if r is not None and r > 0.02 else None, time.monotonic())
 
         def guard(s, now, v, w, why):
             """Hard obstacle stop for EVERY mode (FOLLOW, SEEK spin, EXPLORE, ORANGE, overhead): no forward motion with
@@ -127,8 +146,13 @@ def main():
             def near(n):
                 r, t = s.side.get(n, (None, -1e9))
                 return r is not None and now - t < 0.6 and r < GUARD_M
+            def usable(nm, _fwd):
+                return s.tof_trust.usable_in_explore(nm, True)
+            fwd_trusted = has_trusted_forward_coverage(s.cols, s.t_cols, s.x.rays, now, 0.6, usable)
             hit = []
-            if v > 0 and ahead < GUARD_M: v = 0.0; hit.append(f"ahead {ahead:.2f} m")
+            if v > 0 and not fwd_trusted:
+                v = 0.0; hit.append("no trusted forward coverage")
+            elif v > 0 and ahead < GUARD_M: v = 0.0; hit.append(f"ahead {ahead:.2f} m")
             elif v > 0 and not (l8_fresh or front_fresh): v = 0.0; hit.append("no valid front range (L8 centre + front ToF)")
             if w > 0 and (near("front_left") or near("left")): w = 0.0; hit.append("left side close")
             if w < 0 and (near("front_right") or near("right")): w = 0.0; hit.append("right side close")
@@ -445,7 +469,8 @@ def main():
             if now - s.t_guard_log >= 1.0:
                 s.t_guard_log = now
                 sd = {k: (None if r is None or now - t > 0.6 else round(r, 2)) for k, (r, t) in s.side.items()}
-                s.get_logger().info(f"[1Hz] mode={s.state} v={s.cmd[0]:.3f} w={s.cmd[1]:.3f} l8_min={s.g_ahead:.2f} side={sd} "
+                tr = {k: v for k, v in s.tof_trust.snapshot(s.path).items() if k in sd}
+                s.get_logger().info(f"[1Hz] mode={s.state} v={s.cmd[0]:.3f} w={s.cmd[1]:.3f} l8_min={s.g_ahead:.2f} side={sd} tof_diag={tr} "
                                     f"allow={s.allow} go={s.go} guard_hits={s.guard_hits} det={getattr(s.f, 'det_src', '-')}({getattr(getattr(s.f, 'det', None), 'why', 'off')}) why={why}")
             e = Bool(); e.data = s.state == "EXPLORE"; s.pexp.publish(e)
             tw = Twist(); tw.linear.x, tw.angular.z = s.cmd

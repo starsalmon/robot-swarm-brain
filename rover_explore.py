@@ -14,6 +14,8 @@ Speeds are usable-power fractions (same units as /cmd_vel to the T-Display). Pos
 import math, random
 
 from rover_guard_escape import GUARD_M_DEFAULT, clear_side, near_side, pick_open_side
+from rover_tof_forward import trusted_forward_min
+from rover_tof_geometry import in_forward_arc
 
 E = lambda k, d: type(d)(__import__("os").environ.get(k, d))
 
@@ -29,7 +31,7 @@ class Explorer:
         s.SIDE = E("EXPLORE_SIDE_M", 0.30)       # side wall closer than this: steer off it
         s.STALE = E("EXPLORE_STALE_S", 1.0)
         s.rays = {}                               # name -> (bearing rad, range m, t)
-        s.cols = None; s.t_cols = -1e9
+        s.cols = None; s.t_cols = -1e9  # t_cols set when l8_cols updates (not on frozen repeat)
         s.v = 0.0; s.w = 0.0; s.wander = 0.0; s.pivot = 0.0; s.rec = None; s.t_last = None
 
     # ---- inputs ----
@@ -37,12 +39,22 @@ class Explorer:
         s.cols = [x if x > 0.02 else 4.0 for x in cols]; s.t_cols = now
 
     def on_range(s, name, bearing_deg, r, now):
-        if r is None or r != r: r = 4.0
-        s.rays[name] = (math.radians(bearing_deg), 4.0 if (r <= 0.02 or r > 4.0) else r, now)
+        if r is None or r != r or r <= 0.02 or r > 4.0:
+            s.rays.pop(name, None)
+            return
+        s.rays[name] = (math.radians(bearing_deg), float(r), now)
 
     def on_bump(s, now, why="bump"):
         if s.rec is None or now - s.rec["t"] > 1.5:
             s.rec = dict(ph="back", t=now, why=why, dir=s._open_side(now) or random.choice((-1.0, 1.0)))
+
+    def _lateral_steer(s, now):
+        push = 0.0
+        for nm, sg in (("left", -1.0), ("right", 1.0)):
+            ry = s.rays.get(nm)
+            if ry and now - ry[2] < s.STALE and ry[1] < s.SIDE:
+                push += sg * (s.SIDE - ry[1]) / s.SIDE
+        return s.WMAX * max(-1.0, min(1.0, push))
 
     # ---- helpers ----
     def _all_rays(s, now):
@@ -71,12 +83,12 @@ class Explorer:
     def step(s, now):
         dt = 0.05 if s.t_last is None else max(0.01, min(0.2, now - s.t_last)); s.t_last = now
         rays = s._all_rays(now)
-        l8_ok = s.cols is not None and now - s.t_cols < s.STALE
-        fr = s.rays.get("front"); front_ok = fr is not None and now - fr[2] < s.STALE
-        if not l8_ok and not front_ok:
-            s.v = s.w = 0.0; s.rec = None
-            return 0.0, 0.0, "explore: no fresh ToF, stopped"
-        ahead = min([r for b, r in rays if abs(b) <= math.radians(16)] or [4.0])
+        ahead, fwd_src = trusted_forward_min(
+            s.cols, s.t_cols, s.rays, now, s.STALE, usable=lambda _n, _f: True,
+        )
+        if ahead is None and s.rec is None and not s.pivot:
+            w = s._lateral_steer(now)
+            return s._out(0.0, w, "explore: no trusted forward coverage", dt, hard=True)
         # recovery after bump / stall: reverse 0.6 s, pivot away 0.9 s, resume
         if s.rec is not None:
             e = s.rec; age = now - e["t"]
@@ -84,24 +96,25 @@ class Explorer:
                 if age < 0.6: return s._out(-0.14, 0.0, f"recover ({e['why']}): reverse", dt, hard=True)
                 e.update(ph="turn", t=now); age = 0.0
             if e["ph"] == "turn":
-                if age < 0.9 or ahead < s.STOP + 0.1:
+                if age < 0.9 or (ahead if ahead is not None else 0.0) < s.STOP + 0.1:
                     if age < 3.0: return s._out(0.0, e["dir"] * s.PIVOT_W, f"recover ({e['why']}): pivot {'left' if e['dir'] > 0 else 'right'}", dt, hard=True)
                 s.rec = None
         # blocked ahead: pivot toward the open side (committed until clear; hysteresis)
-        if ahead < s.STOP or (s.pivot and ahead < s.STOP + 0.20):
+        a_blocked = ahead if ahead is not None else 0.0
+        if a_blocked < s.STOP or (s.pivot and a_blocked < s.STOP + 0.20):
             guard_m = float(E("GUARD_M", GUARD_M_DEFAULT))
             sm = s._side_map(now)
             if not s.pivot:
                 s.pivot = pick_open_side(sm, now, guard_m=guard_m, fresh_s=min(s.STALE, 0.6))
                 if s.pivot is None:
-                    return s._out(-0.14, 0.0, f"explore: blocked {ahead:.2f} m, no fresh side gap, reverse", dt, hard=True)
+                    return s._out(-0.14, 0.0, f"explore: blocked {a_blocked:.2f} m, no fresh side gap, reverse", dt, hard=True)
             elif s.pivot > 0 and near_side(sm, now, ("front_left", "left"), guard_m=guard_m):
                 if clear_side(sm, now, ("right", "front_right"), guard_m=guard_m):
                     s.pivot = -1.0
             elif s.pivot < 0 and near_side(sm, now, ("front_right", "right"), guard_m=guard_m):
                 if clear_side(sm, now, ("left", "front_left"), guard_m=guard_m):
                     s.pivot = 1.0
-            return s._out(0.0, s.pivot * s.PIVOT_W, f"explore: blocked {ahead:.2f} m, pivot {'left' if s.pivot > 0 else 'right'}", dt, hard=True)
+            return s._out(0.0, s.pivot * s.PIVOT_W, f"explore: blocked {a_blocked:.2f} m, pivot {'left' if s.pivot > 0 else 'right'}", dt, hard=True)
         s.pivot = 0.0
         # forward speed from clearance ahead (and the +-45 diagonals, at half weight)
         diag = min([r for b, r in rays if math.radians(16) < abs(b) <= math.radians(50)] or [4.0])
