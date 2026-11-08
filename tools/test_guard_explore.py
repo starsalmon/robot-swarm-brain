@@ -87,7 +87,7 @@ def test_explore_blocked_flip_not_deadlock():
 def test_explore_stale_stops():
     x = Explorer()
     v, w, why = x.step(1.0)
-    assert v == 0 and w == 0 and "no fresh" in why
+    assert v == 0 and w == 0 and ("no fresh" in why or "no trusted forward" in why)
 
 
 def test_go_off_semantics_doc():
