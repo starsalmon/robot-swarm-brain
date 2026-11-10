@@ -92,8 +92,6 @@ services:
       - FOLLOW_STOP_HFRAC=${BEEPER_FOLLOW_STOP_HFRAC:-0.60}
       - FOLLOW_CRUISE=0.16
       - FOLLOW_LOST_S=3.0
-      - WHISTLE_TOPIC=/rover/whistle   # Rover AI-cam mic whistle -> Beeper turns to look for a person (Beeper has no mic)
-      - WHISTLE_SEEK_S=20
       - DRIVE_CSV=/tmp/beeper-drive-log.csv
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
