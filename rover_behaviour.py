@@ -48,6 +48,8 @@ def main():
     NB = 12
     ORANGE_V = E("ORANGE_V", 0.16)
     WHISTLE_S = E("WHISTLE_S", 45.0)                   # how long a whistle keeps Rover looking for / following you
+    NEED_WHISTLE = E("FOLLOW_NEED_WHISTLE", 1)        # 1 = FOLLOW only starts within WHISTLE_S of a whistle (Cain 2026-11-10)
+    FOLLOW_MAX_S = E("FOLLOW_MAX_S", 120.0)            # whistle-started FOLLOW ends after this, back to EXPLORE
     GUARD_M = E("GUARD_M", 0.20)                        # hard obstacle stop distance for every mode
     SEEK_W = E("WHISTLE_SEEK_W", 0.14)                 # turn-on-the-spot speed while looking for the whistler                     # approach speed while far
     ARU = PF.cv2.aruco
@@ -424,14 +426,23 @@ def main():
             lost = "SEEK" if whistle else "EXPLORE"
             if whistle and s.state in ("EXPLORE", "ORANGE"):
                 s.goto("SEEK", "whistle")
+            was_follow = s.state == "FOLLOW"
+            if NEED_WHISTLE and not whistle and s.state != "FOLLOW":
+                cand, confirmed = False, False                    # no whistle: people are ignored
+                s.tgt_since = None
+            if NEED_WHISTLE: lost = "EXPLORE"                      # lost after a whistle follow: explore, wait for next whistle
             if s.state in ("EXPLORE", "SEEK") and confirmed:
                 s.goto("FOLLOW", "person in view" + (" after whistle" if whistle else ""))
             elif s.state == "SEEK" and not whistle:
                 s.goto("EXPLORE", "whistle window over, nobody found")
+            elif s.state == "FOLLOW" and NEED_WHISTLE and now - s.t_state > FOLLOW_MAX_S:
+                s.goto("EXPLORE", f"follow timeout {FOLLOW_MAX_S:.0f}s")
             elif s.state == "FOLLOW" and not cam_live:
                 s.goto(lost, "camera stale")
             elif s.state == "FOLLOW" and now - f.t_seen > exit_s and (f.bo is None or now - f.t_seen > exit_s + 4.0):
                 s.goto(lost, f"person lost {now - f.t_seen:.1f}s")
+            if NEED_WHISTLE and was_follow and s.state != "FOLLOW":
+                s.t_whistle = -1e9; s.tgt_since = None             # follow over: ignore people until the next whistle
             if s.state == "ORANGE":
                 if cam_orange or s.arrived:
                     v, w, why = s.orange_cmd(now)

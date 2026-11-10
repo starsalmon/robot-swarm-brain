@@ -423,6 +423,8 @@ services:
       - FOLLOW_TARGET_M=0.5         # stand-off from the person (was 1.0, Cain: get closer)
       - BEHAVIOUR_ENTER_S=0.5
       - BEHAVIOUR_EXIT_S=5.0
+      - FOLLOW_NEED_WHISTLE=1      # FOLLOW only after a whistle (/rover/whistle); Beeper stays follow-on-sight
+      - FOLLOW_MAX_S=120
       - TAG_SIZE_M=0.10          # tag36h11, tags_100mm.pdf
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
