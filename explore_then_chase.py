@@ -96,6 +96,13 @@ class ExploreThenChase(Node):
         self._person_lock = threading.Lock()
         if self.FOLLOW:
             threading.Thread(target=self._det_loop, daemon=True).start()
+        # Whistle (e.g. Rover AI-cam mic on /rover/whistle): turn on the spot looking for a person for WHISTLE_SEEK_S.
+        self.WHISTLE_TOPIC = os.environ.get('WHISTLE_TOPIC', '').strip()
+        self.WHISTLE_SEEK_S = float(os.environ.get('WHISTLE_SEEK_S', '20'))
+        self.WHISTLE_SEEK_W = float(os.environ.get('WHISTLE_SEEK_W', '0.35'))
+        self._t_whistle = -1e9
+        if self.FOLLOW and self.WHISTLE_TOPIC:
+            self.create_subscription(Bool, self.WHISTLE_TOPIC, self._on_whistle, 10)
         self._chase_started_at: float | None = None
         self._chase_cooldown_until = 0.0
         self._drive_log_at = 0.0
@@ -174,6 +181,11 @@ class ExploreThenChase(Node):
             except Exception:
                 pass
             time.sleep(0.1)
+
+    def _on_whistle(self, msg: Bool) -> None:
+        if msg.data:
+            self._t_whistle = time.monotonic()
+            self.get_logger().info(f'whistle: looking for a person for {self.WHISTLE_SEEK_S:.0f}s')
 
     def _person_now(self):
         with self._person_lock:
@@ -430,7 +442,8 @@ class ExploreThenChase(Node):
             self._chase_started_at = None
 
         person, person_fresh = (self._person_now() if (self.FOLLOW and not chasing) else (None, False))
-        mode = 'chase' if chasing else ('follow' if person is not None else 'wander')
+        seeking = self.FOLLOW and time.monotonic() - self._t_whistle < self.WHISTLE_SEEK_S
+        mode = 'chase' if chasing else ('follow' if person is not None else ('seek' if seeking else 'wander'))
         if mode != self._mode:
             self._mode = mode
             self.get_logger().info(f'mode → {mode}')
@@ -459,6 +472,11 @@ class ExploreThenChase(Node):
             # not fresh (briefly lost): hold still until FOLLOW_LOST_S, then wander
             self._wander.apply_sonar_stop(msg)   # obstacle stop ALWAYS (plus _gate_now below)
             self._wander._last_driving = msg.linear.x > 0.05
+        elif mode == 'seek':
+            msg = Twist()
+            msg.angular.z = self.WHISTLE_SEEK_W      # turn on the spot until the detector sees a person
+            self._wander.apply_sonar_stop(msg)
+            self._wander._last_driving = False
         else:
             msg = Twist()
             self._wander.fill_twist(msg)

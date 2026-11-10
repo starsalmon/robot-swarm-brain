@@ -92,6 +92,8 @@ services:
       - FOLLOW_STOP_HFRAC=${BEEPER_FOLLOW_STOP_HFRAC:-0.60}
       - FOLLOW_CRUISE=0.16
       - FOLLOW_LOST_S=3.0
+      - WHISTLE_TOPIC=/rover/whistle   # Rover AI-cam mic whistle -> Beeper turns to look for a person (Beeper has no mic)
+      - WHISTLE_SEEK_S=20
       - DRIVE_CSV=/tmp/beeper-drive-log.csv
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
@@ -305,7 +307,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
-      - CAMERA_URL=${ROVER_CAMERA_URL:-http://192.168.3.128:81/stream}
+      - CAMERA_URL=${ROVER_CAMERA_URL:-http://${ROVER_CAM_IP:-192.168.3.130}:81/stream}
       - CAMERA_FRAME_ID=camera_link
       - CAMERA_INFO_YAML=/opt/fleet/config/rover_cam_info_xga.yaml
       - CAMERA_PUBLISH_RAW=0
@@ -327,7 +329,7 @@ services:
     environment:
       - ROS_DOMAIN_ID=0
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
-      - ROVER_STATUS_URL=${ROVER_STATUS_URL:-http://192.168.3.128/status}
+      - ROVER_STATUS_URL=${ROVER_STATUS_URL:-http://${ROVER_CAM_IP:-192.168.3.130}/status}
       - ROVER_LIGHT_PERIOD=1.0
     command: >
       bash -c "source /opt/ros/jazzy/setup.bash &&
@@ -447,7 +449,7 @@ services:
       - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - AICAM_URL=http://192.168.3.128
+      - AICAM_URL=http://${ROVER_CAM_IP:-192.168.3.130}
       - SPEECH_HOST_IP=192.168.3.172
       - SPEECH_PORT=8099
     command: >
@@ -475,7 +477,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - DET_MODEL=yolov8l-worldv2.pt   # 6 GB 2060 shared with 4 other GPU nodes; x-worldv2 if it fits/keeps fps
       - DET_PORT=8765
-      - DET_PULL=0                     # brain POSTs its own frames; 1 = also pull both MJPEG streams for /latest
+      - DET_PULL=1                     # pull the cams in DET_CAMS for /latest (Beeper follow); Rover POSTs its own frames
+      - 'DET_CAMS={"beeper": "http://${BEEPER_CAM_IP:-beeper.local}:81/stream"}'
     command: python3 /opt/fleet/detector/detector_server.py
     restart: unless-stopped
 
