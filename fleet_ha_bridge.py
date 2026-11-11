@@ -19,9 +19,10 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu, Range
-from std_msgs.msg import Bool, Float32, UInt8
+from std_msgs.msg import Bool, Float32, UInt8, UInt32
 
 from rover_qos import CMD_VEL_QOS
+from fleet_ha_sensors import attach_sensors, subscribe_both
 
 HA_PREFIX = os.environ.get('HA_DISCOVERY_PREFIX', 'homeassistant')
 MQTT_BASE = os.environ.get('FLEET_MQTT_BASE', 'lab/robots')
@@ -70,7 +71,7 @@ def _robots() -> list[Robot]:
             slug='rover',
             name='Rover',
             cmd_vel='/cmd_vel',
-            live_topics=[('/imu/data', Imu), ('/rover/sonar/range', Range)],
+            live_topics=[('/imu/data', Imu), ('/rover/tof/front', Range), ('/rover/wheel/left_ticks', UInt32)],
             battery_topic='/rover/battery/voltage',
             v_empty=6.2,
             v_full=8.3,
@@ -88,10 +89,19 @@ def _robots() -> list[Robot]:
         ),
         Robot(
             slug='tracked',
-            name='Tracked',
+            name='Tracker',
             cmd_vel='/bot2/cmd_vel',
             live_topics=[('/bot2/imu', Imu), ('/bot2/sonar/range', Range)],
             battery_topic='/bot2/battery/voltage',
+            v_empty=3.40,
+            v_full=4.15,
+        ),
+        Robot(
+            slug='beeper',
+            name='Beeper',
+            cmd_vel='/bot3/cmd_vel',
+            live_topics=[('/bot3/imu/data', Imu), ('/bot3/tof/front', Range)],
+            battery_topic='/bot3/battery/voltage',
             v_empty=3.40,
             v_full=4.15,
         ),
@@ -129,28 +139,27 @@ class FleetHaBridge(Node):
 
         self._allow_pub = self.create_publisher(Bool, '/fleet/allow_drive', 10)
         self._session_pub = self.create_publisher(Bool, '/rover/session', 10)
+        # Halt / zero-cmd stays limited to the robots this bridge already stopped.
+        # Beeper is stats-only so this task never starts commanding it.
+        self._halt_slugs = {'rover', 'roby', 'tracked'}
         self._cmd_pubs = {
             slug: self.create_publisher(Twist, bot.cmd_vel, CMD_VEL_QOS)
             for slug, bot in self._robots.items()
+            if slug in self._halt_slugs
         }
 
         for bot in self._robots.values():
             if bot.battery_topic:
-                # micro-ROS rclc_publisher_init_default is RELIABLE — best-effort
-                # subs never see /bot1/battery/voltage (and IMU/sonar).
-                self.create_subscription(
+                # Subscribe both QoS: classic micro-ROS default is RELIABLE, but
+                # Beeper (and some newer firmware) publish BEST_EFFORT.
+                subscribe_both(
+                    self,
                     Float32,
                     bot.battery_topic,
                     self._mk_battery_cb(bot.slug),
-                    REL_QOS,
                 )
             for topic, msg_type in bot.live_topics:
-                self.create_subscription(
-                    msg_type,
-                    topic,
-                    self._mk_seen_cb(bot.slug),
-                    REL_QOS,
-                )
+                subscribe_both(self, msg_type, topic, self._mk_seen_cb(bot.slug))
             if bot.session_topic:
                 self.create_subscription(
                     Bool,
@@ -183,11 +192,16 @@ class FleetHaBridge(Node):
         self._mqtt.on_connect = self._on_mqtt_connect
         self._mqtt.on_message = self._on_mqtt_message
         self._mqtt.will_set(f'{MQTT_BASE}/bridge/availability', 'offline', qos=1, retain=True)
+        self._sensors = attach_sensors(
+            self, self._mqtt, self._robots, MQTT_BASE, HA_PREFIX, self._pub_cfg
+        )
+        self._batt_last: dict[str, tuple[float, float]] = {}
+        self._ha_last: dict[tuple[str, str], tuple[float, str]] = {}
         self._mqtt.connect_async(host, port, keepalive=30)
         self._mqtt.loop_start()
 
         self.create_timer(0.5, self._tick_ros)
-        self.create_timer(2.0, self._tick_ha)
+        self.create_timer(1.0, self._tick_ha)
         self.get_logger().info(f'fleet HA bridge → mqtt {host}:{port} as {MQTT_BASE}')
 
     def _mk_battery_cb(self, slug: str):
@@ -213,7 +227,6 @@ class FleetHaBridge(Node):
         def _cb(msg: Bool) -> None:
             bot = self._robots[slug]
             bot.session = bool(msg.data)
-            bot.last_seen = time.monotonic()
 
         return _cb
 
@@ -221,7 +234,6 @@ class FleetHaBridge(Node):
         def _cb(msg: UInt8) -> None:
             bot = self._robots[slug]
             bot.drive_mode = int(msg.data)
-            bot.last_seen = time.monotonic()
 
         return _cb
 
@@ -429,9 +441,28 @@ class FleetHaBridge(Node):
                     },
                 )
 
-    def _publish_battery(self, bot: Robot) -> None:
+        self._sensors.publish_discovery()
+
+    def _pub_ha_state(self, slug: str, key: str, value: str, period: float = 30.0) -> None:
+        now = time.monotonic()
+        prev = self._ha_last.get((slug, key))
+        if prev is not None:
+            last_t, last_v = prev
+            if value == last_v and (now - last_t) < period:
+                return
+        self._ha_last[(slug, key)] = (now, value)
+        self._mqtt.publish(f'{MQTT_BASE}/{slug}/{key}', value, qos=1, retain=True)
+
+    def _publish_battery(self, bot: Robot, *, force: bool = False) -> None:
         if bot.volts is None:
             return
+        now = time.monotonic()
+        prev = self._batt_last.get(bot.slug)
+        if not force and prev is not None:
+            last_t, last_v = prev
+            if (now - last_t) < 30.0 and abs(bot.volts - last_v) < 0.05:
+                return
+        self._batt_last[bot.slug] = (now, bot.volts)
         self._mqtt.publish(
             f'{MQTT_BASE}/{bot.slug}/battery_voltage',
             f'{bot.volts:.2f}',
@@ -473,30 +504,18 @@ class FleetHaBridge(Node):
         if not self._mqtt.is_connected():
             return
         now = time.monotonic()
+        online_map = {}
         for bot in self._robots.values():
             online = bot.last_seen > 0.0 and (now - bot.last_seen) < STALE_S
-            self._mqtt.publish(
-                f'{MQTT_BASE}/{bot.slug}/online',
-                'ON' if online else 'OFF',
-                qos=1,
-                retain=True,
-            )
+            online_map[bot.slug] = online
+            self._pub_ha_state(bot.slug, 'online', 'ON' if online else 'OFF')
             self._publish_battery(bot)
             if bot.session is not None:
-                self._mqtt.publish(
-                    f'{MQTT_BASE}/{bot.slug}/session',
-                    'ON' if bot.session else 'OFF',
-                    qos=1,
-                    retain=True,
-                )
+                self._pub_ha_state(bot.slug, 'session', 'ON' if bot.session else 'OFF')
             if bot.drive_mode is not None:
                 label = 'wall follow' if bot.drive_mode == 1 else 'explore'
-                self._mqtt.publish(
-                    f'{MQTT_BASE}/{bot.slug}/drive_mode',
-                    label,
-                    qos=1,
-                    retain=True,
-                )
+                self._pub_ha_state(bot.slug, 'drive_mode', label)
+        self._sensors.tick(now, online_map)
 
     def destroy_node(self) -> None:
         try:
