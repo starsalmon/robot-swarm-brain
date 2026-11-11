@@ -220,6 +220,7 @@ class FleetHaSensors:
             subscribe_both(self._node, Float32, '/bot2/battery/motor_voltage', self._mk_extra(slug, 'motor_voltage'))
             subscribe_both(self._node, Illuminance, '/bot2/als/illuminance', self._mk_als(slug))
             subscribe_both(self._node, Twist, '/bot2/cmd_vel', self._mk_cmd_mode(slug))
+            subscribe_both(self._node, Float32, '/bot2/wifi/rssi', self._mk_rssi(slug))
         elif slug == 'roby':
             subscribe_both(self._node, Imu, '/bot1/imu', self._mk_imu(slug, counts_as_live=True))
             subscribe_both(self._node, Range, '/bot1/sonar/range', self._mk_range(slug, 'front', live=True))
@@ -447,7 +448,7 @@ class FleetHaSensors:
                 sensor('yaw', 'Yaw', 'yaw', unit='°', precision=1, icon='mdi:compass', device_class=None)
             if slug in ('rover', 'beeper'):
                 sensor('speed', 'Speed', 'speed', unit='m/s', precision=3, icon='mdi:speedometer')
-            if slug in ('rover', 'beeper'):
+            if slug in ('rover', 'beeper', 'tracked'):
                 sensor('wifi', 'Wi-Fi', 'wifi', unit='dBm', device_class='signal_strength', precision=0, icon='mdi:wifi')
             if slug == 'tracked':
                 sensor('solar', 'Solar', 'solar', unit='V', device_class='voltage', precision=2, icon='mdi:solar-power')
