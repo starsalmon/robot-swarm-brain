@@ -456,6 +456,24 @@ services:
       bash -c "source /opt/ros/jazzy/setup.bash && exec python3 /opt/fleet/rover_speech.py"
     restart: unless-stopped
 
+
+  rover-boot-greet:
+    image: rover-speech:jazzy
+    container_name: rover-boot-greet
+    network_mode: host
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - AICAM_URL=http://${ROVER_CAM_IP:-192.168.3.130}
+      - BATT_URL=http://${ROVER_ESP_IP:-192.168.3.71}/battery
+      - SPEECH_HOST_IP=192.168.3.172
+      - SPEECH_PORT=8100
+      - SPEECH_VOICE=/voices/en_GB-alan-medium.onnx
+      - TZ=Australia/Melbourne
+    command: python3 /opt/fleet/rover_boot_greeting.py
+    restart: unless-stopped
+
+
   # YOLO-World detector on the NUC GPU (never drives anything). Not started by default.
   # Start: docker compose --profile detector up -d --build detector ; then DET_REMOTE=1 on rover-speech / rover-behaviour.
   # Windows RTX 3080 alternative: run detector/ there and set DET_URL=http://192.168.2.44:8765 on the clients.
