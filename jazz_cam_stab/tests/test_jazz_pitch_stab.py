@@ -11,6 +11,7 @@ from jazz_pitch_stab import (  # noqa: E402
     applied_pitch,
     load_K,
     pitch_from_imu_quat,
+    pitch_freshness,
     pitch_homography,
     rx,
 )
@@ -63,10 +64,21 @@ def test_rx_orthonormal():
     assert abs(np.linalg.det(R) - 1.0) < 1e-9
 
 
+def test_pitch_freshness():
+    assert pitch_freshness(0.0) == "live"
+    assert pitch_freshness(0.5) == "live"
+    assert pitch_freshness(0.51) == "hold"
+    assert pitch_freshness(2.5) == "hold"
+    assert pitch_freshness(2.51) == "stale"
+    assert pitch_freshness(0.6, stale_s=0.5, hold_s=1.0) == "hold"
+    assert pitch_freshness(1.51, stale_s=0.5, hold_s=1.0) == "stale"
+
+
 if __name__ == "__main__":
     test_identity_at_zero()
     test_applied_gain_and_trim()
     test_small_pitch_moves_principal_point_vertically()
     test_quat_roundtrip_pitch()
     test_rx_orthonormal()
+    test_pitch_freshness()
     print("test_jazz_pitch_stab: OK")

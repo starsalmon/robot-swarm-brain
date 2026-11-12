@@ -10,6 +10,10 @@ and warps each frame so the view stays level as the body nods.
   the balance loop; positive = nose-up / lying back).
 - Fallback: pitch extracted from `/jazz/imu/data` orientation if
   `/jazz/pitch` is stale (>0.5 s).
+- If `/jazz/pitch` goes quiet, the preview **HOLD**s the last good pitch
+  for `JAZZ_STAB_HOLD_S` (default 2 s) after the 0.5 s live window, then
+  passes the raw frame through (**STALE**). Overlay and `/health` distinguish
+  live, HOLD, and STALE passthrough.
 - Warp: plane-at-infinity homography `H = K Rx(gain·pitch + trim) K⁻¹`
   using `cam146` intrinsics. Default `gain=+1` undoes a nose-up nod
   (OpenCV Rx). If the horizon moves the wrong way:
@@ -46,4 +50,6 @@ otherwise they keep the raw Pi stream.
 - Horizon is IMU-stabilized, not vision-estimated; mount tilt needs trim.
 - Added latency: about one camera frame plus a few ms of warp, plus HTTP.
 - Plane-at-infinity warp: nearby objects still show parallax.
-- If pitch is stale, the preview passes the raw frame through (HUD says STALE).
+- If pitch is older than 0.5 s the preview HOLDs the last warp for 2 s
+  (HUD: HOLD, still shows age); after that it passes the raw frame
+  (HUD: STALE passthrough).

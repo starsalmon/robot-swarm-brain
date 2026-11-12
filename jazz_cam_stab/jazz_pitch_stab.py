@@ -56,6 +56,19 @@ def applied_pitch(pitch_rad: float, trim_rad: float = 0.0, pitch_gain: float = 1
     return pitch_gain * float(pitch_rad) + float(trim_rad)
 
 
+def pitch_freshness(age_s: float, stale_s: float = 0.5, hold_s: float = 2.0) -> str:
+    """Classify pitch age: live, hold (keep last warp), or stale (passthrough).
+
+    Live while age <= stale_s. Then hold the last good pitch for hold_s more
+    seconds. Only after stale_s + hold_s does the preview pass the raw frame.
+    """
+    if age_s <= stale_s:
+        return "live"
+    if age_s <= stale_s + hold_s:
+        return "hold"
+    return "stale"
+
+
 def pitch_homography(pitch_rad: float, K: np.ndarray, trim_rad: float = 0.0, pitch_gain: float = 1.0) -> np.ndarray:
     a = applied_pitch(pitch_rad, trim_rad, pitch_gain)
     Kinv = np.linalg.inv(K)

@@ -20,6 +20,8 @@ docker run -d --name "$NAME" --network host --restart unless-stopped \
   -e JAZZ_CALIB=/calib/cam146.json \
   -e JAZZ_STAB_TRIM_DEG="${JAZZ_STAB_TRIM_DEG:-0}" \
   -e JAZZ_STAB_PITCH_GAIN="${JAZZ_STAB_PITCH_GAIN:-1}" \
+  -e JAZZ_STAB_STALE_S="${JAZZ_STAB_STALE_S:-0.5}" \
+  -e JAZZ_STAB_HOLD_S="${JAZZ_STAB_HOLD_S:-2}" \
   -e PYTHONUNBUFFERED=1 \
   -v "$BRAIN":/opt/fleet:ro \
   -v "$CALIB_DIR":/calib:ro \

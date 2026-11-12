@@ -29,7 +29,7 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from jazz_pitch_stab import JazzPitchStabilizer, pitch_from_imu_quat  # noqa: E402
+from jazz_pitch_stab import JazzPitchStabilizer, pitch_freshness, pitch_from_imu_quat  # noqa: E402
 
 CAM_URL = os.environ.get("JAZZ_CAM_URL", "http://192.168.3.146:81/stream")
 JPG_URL = os.environ.get("JAZZ_CAM_JPG", "http://192.168.3.146:81/jpg")
@@ -40,6 +40,7 @@ IMU_TOPIC = os.environ.get("JAZZ_IMU_TOPIC", "/jazz/imu/data")
 TRIM_DEG = float(os.environ.get("JAZZ_STAB_TRIM_DEG", "0"))
 PITCH_GAIN = float(os.environ.get("JAZZ_STAB_PITCH_GAIN", "1"))
 STALE_S = float(os.environ.get("JAZZ_STAB_STALE_S", "0.5"))
+HOLD_S = float(os.environ.get("JAZZ_STAB_HOLD_S", "2"))
 HUD = os.environ.get("JAZZ_STAB_HUD", "1") not in ("0", "false", "no")
 
 _lock = threading.Lock()
@@ -47,6 +48,7 @@ _state = {
     "pitch_rad": 0.0,
     "pitch_age_s": 1e9,
     "pitch_src": "none",
+    "pitch_mode": "stale",
     "frame": None,
     "stab": None,
     "raw": None,
@@ -59,14 +61,20 @@ _state = {
 }
 
 
-def _hud(img, pitch, applied, age, src, stale):
+def _hud(img, pitch, applied, age, src, mode):
     if not HUD or img is None:
         return img
     out = img.copy()
+    if mode == "hold":
+        tag = "  HOLD (last pitch)"
+    elif mode == "stale":
+        tag = "  STALE passthrough"
+    else:
+        tag = "  live"
     lines = [
         "jazz cam stab  (IMU pitch, not vision)",
         f"pitch {math.degrees(pitch):+.1f} deg   applied {math.degrees(applied):+.1f} deg",
-        f"src {src}  age {age:.2f}s" + ("  STALE passthrough" if stale else ""),
+        f"src {src}  age {age:.2f}s" + tag,
     ]
     y = 22
     for ln in lines:
@@ -117,14 +125,15 @@ def _grab_loop():
             pitch = _state["pitch_rad"]
             age = now - _state["t_pitch"] if _state["t_pitch"] else 1e9
             src = _state["pitch_src"]
-        stale = age > STALE_S
-        if stale:
+        mode = pitch_freshness(age, STALE_S, HOLD_S)
+        if mode == "stale":
             warped = raw
             applied = 0.0
         else:
+            # live and HOLD both apply the last good pitch.
             warped = stab.warp(raw, pitch)
             applied = stab.applied_rad()
-        vis = _hud(warped, pitch, applied, age, src, stale)
+        vis = _hud(warped, pitch, applied, age, src, mode)
         frames += 1
         if now - t_fps >= 1.0:
             fps = frames / (now - t_fps)
@@ -140,6 +149,7 @@ def _grab_loop():
             _state["ok"] = True
             _state["err"] = ""
             _state["pitch_age_s"] = age
+            _state["pitch_mode"] = mode
             _state["out_size"] = (int(vis.shape[1]), int(vis.shape[0]))
             if fps is not None:
                 _state["in_fps"] = fps
@@ -179,10 +189,18 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": s["ok"],
                     "err": s["err"],
                     "pitch_deg": math.degrees(s["pitch_rad"]),
-                    "applied_deg": math.degrees(s["pitch_rad"]) * PITCH_GAIN + TRIM_DEG if not (s["pitch_age_s"] > STALE_S) else 0.0,
+                    "applied_deg": (
+                        math.degrees(s["pitch_rad"]) * PITCH_GAIN + TRIM_DEG
+                        if s.get("pitch_mode", "stale") != "stale"
+                        else 0.0
+                    ),
                     "pitch_age_s": s["pitch_age_s"],
                     "pitch_src": s["pitch_src"],
-                    "stale": s["pitch_age_s"] > STALE_S,
+                    "pitch_mode": s.get("pitch_mode", "stale"),
+                    "stale": s.get("pitch_mode", "stale") == "stale",
+                    "hold": s.get("pitch_mode") == "hold",
+                    "stale_s": STALE_S,
+                    "hold_s": HOLD_S,
                     "fps": s["in_fps"],
                     "size": s["out_size"],
                     "cam_url": CAM_URL,
@@ -244,7 +262,8 @@ def _ros_thread():
     class PitchNode(Node):
         def __init__(self):
             super().__init__("jazz_cam_stab")
-            self.create_subscription(Float32, PITCH_TOPIC, self._on_pitch, qos_rel)
+            # Best-effort: matches reliable Jazz today and best-effort after the QoS flash.
+            self.create_subscription(Float32, PITCH_TOPIC, self._on_pitch, qos)
             self.create_subscription(Imu, IMU_TOPIC, self._on_imu, qos)
             self.get_logger().info(
                 f"pitch {PITCH_TOPIC} (rad)  cam {CAM_URL}  preview :{PORT}  gain {PITCH_GAIN} trim {TRIM_DEG}"
