@@ -33,4 +33,4 @@ done
 
 echo ""
 echo "Done. Pick cruise = highest speed still quiet + controllable."
-echo "Set WANDER_CRUISE on dockerhost (see fleet .env) before restarting explore brain."
+echo "Set WANDER_CRUISE in docker-compose / .env before restarting explore brain."

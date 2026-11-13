@@ -15,7 +15,7 @@ import http.server, json, os, socketserver, subprocess, threading, time, urllib.
 from collections import Counter, deque
 
 E = lambda k, d: type(d)(os.environ.get(k, d))
-CAM = E("AICAM_URL", "http://192.168.3.128")
+CAM = E("AICAM_URL", "http://192.168.3.130")
 # louder: Piper is already ~-14 LUFS peaking at 0 dBFS, so plain gain just clips. Compress, add makeup gain, then a
 # limiter so nothing clips: -14 -> ~-10 LUFS (about +4 dB heard) with peaks held below 0 dBFS. SPEECH_BOOST_DB tunes it.
 SPEECH_AF = (f"acompressor=threshold=0.05:ratio=6:attack=3:release=60,volume={E('SPEECH_BOOST_DB', '20')}dB,"

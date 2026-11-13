@@ -3,7 +3,7 @@
 NUC: `docker compose --profile detector up -d --build detector` (see docker-compose.yml). Below is the Windows PC setup.
 
 Open-vocabulary detection (Ultralytics YOLO-World, `yolov8x-worldv2.pt` by default) for the robots. The brain
-POSTs its camera frames; the PC can also pull the Rover (192.168.3.128:81) and Beeper (192.168.3.241:81) MJPEG streams itself.
+POSTs its camera frames; the NUC can also pull the Beeper MJPEG stream (`BEEPER_CAM_IP`, default `beeper.local:81`). Rover AI cam defaults to `192.168.3.130` (`ROVER_CAM_IP` in `docker-compose.yml`).
 
 ## Setup (once)
 1. Install **Python 3.11** (python.org, tick "Add to PATH" and the `py` launcher). Up-to-date NVIDIA driver (CUDA 12.4+ capable).

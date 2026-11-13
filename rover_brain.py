@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""LEGO rover explore brain — dockerhost, WiFi micro-ROS.
+"""LEGO rover explore brain — NUC Docker stack, WiFi micro-ROS.
 
 Tap **Go** on the rover to start/stop. Explore vs wall-follow is selected on the
 ESP mode menu (`/rover/drive_mode`). `ROVER_MODE` env is only the startup default

@@ -7,7 +7,7 @@ Publishes (every ROVER_LIGHT_PERIOD s, only while /status answers)
                                         (IR LEDs on, night exposure, night gain ceiling)
 
 Env
-  ROVER_STATUS_URL    default http://192.168.3.128/status
+  ROVER_STATUS_URL    default http://192.168.3.130/status (ROVER_CAM_IP in docker-compose.yml)
   ROVER_LIGHT_PERIOD  default 1.0 (s)
 
 Read-only: only GETs /status, never changes camera settings.
@@ -20,7 +20,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, Float32
 
-URL = os.environ.get("ROVER_STATUS_URL", "http://192.168.3.128/status")
+URL = os.environ.get("ROVER_STATUS_URL", "http://192.168.3.130/status")
 PERIOD = float(os.environ.get("ROVER_LIGHT_PERIOD", "1.0"))
 
 

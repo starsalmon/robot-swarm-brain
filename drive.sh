@@ -1,6 +1,6 @@
 #!/bin/sh
 # Battery drive test over WiFi — rover-style L/R/B commands (no USB).
-# Run on dockerhost with bot on battery only. Brain must be stopped.
+# Run on the NUC with bot on battery only. Brain must be stopped.
 #
 #   L 15     left wheel 15%
 #   R 15     right wheel 15%

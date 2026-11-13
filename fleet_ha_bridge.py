@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ROS 2 → Home Assistant MQTT (same broker as yoRadio).
 
-Always-on on dockerhost. Battery topics are retained so the wall panel keeps
+Always-on on the NUC brain. Battery topics are retained so the wall panel keeps
 the last reading after a bot powers off. Stop-all turns off /fleet/allow_drive
 so brains actually halt, not just one zeroed cmd_vel.
 """
@@ -113,7 +113,7 @@ def _device_fleet() -> dict:
         'identifiers': ['lab_robots'],
         'name': 'Lab robots',
         'manufacturer': 'lab',
-        'model': 'dockerhost fleet',
+        'model': 'NUC fleet brain',
     }
 
 
@@ -171,7 +171,7 @@ class FleetHaBridge(Node):
         user = os.environ.get('MQTT_USER', '').strip()
         password = os.environ.get('MQTT_PASS', '')
         if not host:
-            raise SystemExit('MQTT_HOST is not set (mqtt_secrets.env on dockerhost)')
+            raise SystemExit('MQTT_HOST is not set (mqtt_secrets.env on the NUC)')
 
         cid = os.environ.get('MQTT_CLIENT_ID', 'fleet-ha-bridge')
         try:

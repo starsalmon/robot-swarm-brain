@@ -57,7 +57,7 @@ def test_guard_near_uses_suspect_reading():
     assert near_side(side, 100.0, ("front_left",))
 
 
-def _iter_g6_merged(path: str):
+def _iter_telem_merged(path: str):
     import bisect
 
     if not os.path.isfile(path):
@@ -81,9 +81,12 @@ def _iter_g6_merged(path: str):
     return by_epoch, path_at
 
 
-def test_g6_jsonl_suspect_diagonals():
-    path = "/home/ubuntu/.cursor/projects/workspace/uploads/rover-g6-baseline-1133_3af0.jsonl"
-    merged, path_at = _iter_g6_merged(path)
+def test_telem_jsonl_suspect_diagonals():
+    path = os.environ.get(
+        "ROVER_TOF_TELEM_JSONL",
+        "/home/ubuntu/.cursor/projects/workspace/uploads/rover-g6-baseline-1133_3af0.jsonl",
+    )
+    merged, path_at = _iter_telem_merged(path)
     if merged is None:
         return
     t = TofTrust(stamp_advances=3)
@@ -105,9 +108,12 @@ def test_g6_jsonl_suspect_diagonals():
     assert n > 50 and sus > n * 0.5
 
 
-def test_g6_replay_sustained_no_trusted_forward():
-    path = "/home/ubuntu/.cursor/projects/workspace/uploads/rover-g6-baseline-1133_3af0.jsonl"
-    merged, path_at = _iter_g6_merged(path)
+def test_telem_replay_sustained_no_trusted_forward():
+    path = os.environ.get(
+        "ROVER_TOF_TELEM_JSONL",
+        "/home/ubuntu/.cursor/projects/workspace/uploads/rover-g6-baseline-1133_3af0.jsonl",
+    )
+    merged, path_at = _iter_telem_merged(path)
     if merged is None:
         return
     trust = TofTrust(stamp_advances=3)
@@ -164,10 +170,10 @@ def main():
     print("ok guard conservative")
     test_forward_min_never_side_only()
     print("ok no side-as-ahead")
-    test_g6_jsonl_suspect_diagonals()
-    print("ok g6 suspect")
-    test_g6_replay_sustained_no_trusted_forward()
-    print("ok g6 sustained forward gate")
+    test_telem_jsonl_suspect_diagonals()
+    print("ok telem suspect (skipped if no fixture)")
+    test_telem_replay_sustained_no_trusted_forward()
+    print("ok telem sustained forward gate (skipped if no fixture)")
     print("PASS")
 
 

@@ -4,7 +4,7 @@
 Writes JSONL under ROVER_TELEM_DIR (default ~/rover-telem), one file per UTC day.
 Each line: {"recv_ts": epoch, "recv_iso": "...", "src": "ip:port", "line": "..."}
 
-Run as a service (install_rover_telem_service.sh) on dockerhost or Pi on the LAN.
+Run on the NUC or another LAN host that can reach the rover ESP UDP diag port.
 """
 from __future__ import annotations
 

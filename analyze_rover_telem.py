@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick stats from rover UDP DIAG lines (dockerhost ~/rover-telem/*.jsonl)."""
+"""Quick stats from rover UDP DIAG lines (e.g. ~/rover-telem/*.jsonl on the brain host)."""
 from __future__ import annotations
 
 import argparse

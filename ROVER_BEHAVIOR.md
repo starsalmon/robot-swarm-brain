@@ -14,15 +14,13 @@ The drive board only drives while `/rover/session` is true and `/cmd_vel` is fre
 
 ## Priority (highest first)
 
-1. **ORANGE** - a real orange fruit is confirmed by a camera:
-   - Rover camera: YOLO11s COCO class 49 (the fruit, conf >= `ORANGE_CONF` 0.40), run in the same pass as person detection.
-   - LifeCam (`room-eye`): the same detector at 1280 px. This path is used only while room-eye has a **confirmed** Rover track (`/room/overhead` field 8 = 1). A blob becomes Rover only after it is seen moving (MOG2 background subtraction) while `/cmd_vel` commands motion. Static tubs, boxes and a parked Rover are never confirmed. A track that stays still for 2.5 s while `/cmd_vel` says drive is dropped (`rover_track.py`).
-   - Either one needs the orange in **4 of the last 6 frames** at a consistent spot and roundish shape (`orange_vote.py`). Orange-coloured tubs, boxes and toys are not the class and are ignored.
+1. **ORANGE** - a real orange fruit is confirmed on the **Rover AI camera**: YOLO11s COCO class 49 (conf >= `ORANGE_CONF` 0.40), same pass as person detection; **4 of the last 6 frames** at a consistent spot (`orange_vote.py`). Orange-coloured tubs and toys are not class 49 and are ignored.
    - It drives at 16% usable, dropping to 11% then 7% as it gets close, and steers toward the orange. At 5 cm or less it stops and plays the tune.
 2. **FOLLOW** - a person (COCO class 0, ByteTrack) from a **live** Rover camera (at least 3 frames in the last second, newest under 0.5 s old), seen in at least 4 frames spanning 0.5 s of frame time (`cam_gate.py`):
-   - Uses the proven `person_follow.Follower` at up to `FOLLOW_VMAX` 22% usable (explore cruise is 18%), with turns up to 10%.
-   - Keeps `FOLLOW_TARGET_M` 1.0 m: it slows from 0.50 m and stops at 0.30 m.
-   - Returns to explore after the person has been lost for 5 s, or straight away if the camera goes stale. A silent camera's last detections are cleared.
+   - With `FOLLOW_NEED_WHISTLE=1`, FOLLOW only starts after a whistle on `/rover/whistle` (see `rover_behaviour.py`).
+   - Uses `person_follow.Follower` at up to `FOLLOW_VMAX` 22% usable (explore cruise is 18%), turns up to 10%.
+   - `FOLLOW_TARGET_M` 0.5 m, slows from 0.35 m, hard stop at 0.25 m (`FOLLOW_STOP_DIST`; `GUARD_M` 0.20 unchanged).
+   - Returns to explore after the person is lost (`BEHAVIOUR_EXIT_S` 5 s), after `FOLLOW_MAX_S` 120 s, or if the camera goes stale.
    - While a person is only a candidate, explore continues at 60% speed rather than stopping.
 3. **EXPLORE** - `rover_explore.py`, continuous steering:
    - **Inputs:** the 8 L8 columns (column 0 = left) plus the front, front_left, front_right, left and right ToF. Geometry and minimum trusted forward coverage: `rover_tof_geometry.py`. Lateral ToF must not set forward cruise clearance. If no trusted forward picture (fresh L8 centre and/or non-suspect nose/diagonal beams in the forward arc), explore holds `v=0` (lateral steer/pivot only). Suspect republish: diagonal stamps advance with fixed range while peer channels change — withhold forward beams (diagnostic: `tof_diag` in 1 Hz log). `header.stamp` is message time from the ESP publisher (not verified new sample). Producer firmware: `lego-rover-esp32` Pro S3 env `um_pros3_tof_microros` (separate repo).
@@ -33,17 +31,14 @@ The drive board only drives while `/rover/session` is true and `/cmd_vel` is fre
 
 A final safety check stops forward motion into anything under 0.20 m, unless that thing is the centred orange being approached.
 
-Status JSON is published on `/rover/behaviour/status`. It includes the state, the reason, v/w, nfruit, orange_cam and orange_room.
+Status JSON is published on `/rover/behaviour/status`. It includes the state, the reason, v/w, and orange/person fields.
 
 ## Offline tests
 
 - `tools/test_orange_offline.py img...` runs the old HSV finder against YOLO + vote on still images.
-- `tools/test_rover_track.py frame.jpg` checks that the overhead Rover track ignores static blobs and confirms a moving one.
 - `tools/test_cam_gate.py` checks the camera/person freshness gate.
 - `tools/test_guard_explore.py` checks blocked-front pivot, guard flip/reverse unstick, and stale ToF stop.
-- `tools/test_tof_trust.py` — stale forward + clear sides ⇒ no forward; parallel constant range; republish suspicion; G6 jsonl regression.
-
-**Uncertainty (G6 baseline):** Explore uses **+w = left** (nose CCW). Video described a rightward curve toward the sofa; status showed **steer +0.05…+0.11** while frozen **front_left** (1.218 m) likely biased VFH pull — reconcile with camera pose before tuning steer sign.
+- `tools/test_tof_trust.py` — stale forward + clear sides ⇒ no forward; parallel constant range; republish suspicion; optional captured telemetry jsonl regression when a fixture path is present.
 - `tools/replay_explore.py <bag>` feeds recorded ToF into the Explorer and summarises its speed and turning.
 - `python3 person_follow.py --bag <mcap bag>` runs the person/orange detection replay.
 
