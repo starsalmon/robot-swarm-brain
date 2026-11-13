@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simple wander brain for c3-mini-bot — runs on dockerhost with ROS 2 Jazzy."""
+"""Simple wander brain for c3-mini-bot — runs in fleet-brain / fleet-wander container."""
 from __future__ import annotations
 
 import os

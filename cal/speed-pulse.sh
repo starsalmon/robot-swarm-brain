@@ -1,5 +1,5 @@
 #!/bin/sh
-# Brief cmd_vel burst for bench / speed checks. Run from ~/robot-fleet on dockerhost.
+# Brief cmd_vel burst for bench / speed checks. Run from /data/swarm/robot-swarm-brain on the NUC.
 # Usage: ./speed-pulse.sh [linear_x] [seconds] [rate_hz]
 #   ./speed-pulse.sh 0.2 4     # gentle creep test
 #   ./speed-pulse.sh 0.8 4     # strong forward

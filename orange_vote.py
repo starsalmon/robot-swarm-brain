@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Consistency gate for the YOLO 'orange' (COCO class 49) detections, shared by rover_behaviour and room_eye.
+"""Consistency gate for the YOLO 'orange' (COCO class 49) detections, shared by rover_behaviour and person_follow.
 
 A sighting only counts once the fruit has been detected in at least `need` of the last `window` frames, all
 within `max_jump` (fraction of image width) of each other. One-frame false positives (a tub, a box, a lamp)

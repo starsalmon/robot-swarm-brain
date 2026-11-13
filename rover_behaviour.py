@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Rover's one always-on behaviour. Priority, re-checked 20 times a second:
 
-  1. ORANGE   a real orange (the fruit: YOLO11 COCO class 49, held in >= 4 of the last 6 frames) is seen by ANY
-              camera: Rover's own camera (steer on its bearing, L8 for range, stop at ~5 cm and play the tune), or
-              the overhead LifeCam (room_eye.py, same detector + vote, steers Rover there from above).
-              Obstacle safety still applies on the way.
+  1. ORANGE   a real orange (the fruit: YOLO11 COCO class 49, held in >= 4 of the last 6 frames) on the Rover AI
+              camera (steer on bearing, L8 for range, stop at ~5 cm and play the tune). Obstacle safety still applies.
   2. FOLLOW   a person held in view >= BEHAVIOUR_ENTER_S: person_follow.Follower (YOLO person + ByteTrack, smooth
               PD steer, holds ~1 m), a bit faster than explore. Back to EXPLORE when lost > BEHAVIOUR_EXIT_S.
   W. WHISTLE  a whistle (AI cam Goertzel detector -> rover_speech.py -> /rover/whistle) means "come here": for

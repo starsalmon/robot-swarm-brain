@@ -1,5 +1,5 @@
 #!/bin/sh
-# Start (or restart) the full fleet stack on dockerhost.
+# Start (or restart) the fleet explore stack on the NUC (/data/swarm/robot-swarm-brain).
 set -e
 
 DIR="$(cd "$(dirname "$0")" && pwd)"

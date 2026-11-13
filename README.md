@@ -6,6 +6,7 @@ Rover's brain runs on the NUC `brain` (192.168.3.172) as the `rover-brain` conta
 
 | Doc / file | Purpose |
 |------------|---------|
+| [docs/FLEET.md](docs/FLEET.md) | Fleet bots, namespaces, hostnames, brain containers |
 | [ROVER_BEHAVIOR.md](ROVER_BEHAVIOR.md) | Explore: picture, steer-around, escapes, limits |
 | [ROVER_WANDER.md](ROVER_WANDER.md) | Mode roll (cruise / wander / burst) |
 | [BUTTON.md](BUTTON.md) | Go / E-stop, topics, ring and speaker cues |

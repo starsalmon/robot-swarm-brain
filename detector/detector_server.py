@@ -18,7 +18,7 @@ import uvicorn
 E = lambda k, d: type(d)(os.environ.get(k, d))
 MODEL = E("DET_MODEL", "yolov8x-worldv2.pt")       # yolov8l-worldv2.pt is ~2x faster
 PORT, CONF, IMGSZ = E("DET_PORT", 8765), E("DET_CONF", 0.25), E("DET_IMGSZ", 640)
-CAMS = json.loads(E("DET_CAMS", '{"rover": "http://192.168.3.128:81/stream", "beeper": "http://192.168.3.241:81/stream"}'))
+CAMS = json.loads(E("DET_CAMS", '{"beeper": "http://beeper.local:81/stream"}'))
 PULL = E("DET_PULL", 1)                              # 1 = keep pulling both MJPEG streams for /latest
 DEFAULT_VOCAB = ["person", "orange fruit", "cup", "mug", "bottle", "bowl", "plate", "spoon", "fork", "knife", "banana", "apple",
                  "phone", "remote control", "keyboard", "computer mouse", "laptop", "book", "scissors", "teddy bear", "ball",
