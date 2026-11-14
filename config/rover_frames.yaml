@@ -11,6 +11,10 @@ frames:
     parent: base_link
     xyz: [0.0724, 0.00625, 0.106]
     rpy_deg: [0.0, 0.0, 0.0]   # level, forward-facing
+  lidar_link:          # Pro S3 STL-19P. Scan angle 0 points starboard (base -Y) -> yaw -90. Confirmed 2026-11-12 vs ToF.
+    parent: base_link  # z 0.12 is an unmeasured placeholder. ALSO published by maps/lidar/start_lidar_slam.sh (same values).
+    xyz: [0.0, 0.0, 0.12]
+    rpy_deg: [0.0, 0.0, -90.0]
 wheel:
   slits_per_rev: 60     # firmware counts RISING edges only (attachInterrupt RISING) -> 60 ticks/rev
   diameter_m: 0.095

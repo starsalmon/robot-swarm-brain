@@ -415,7 +415,7 @@ services:
       - FOLLOW_WMAX=0.10
       - FOLLOW_CONF=0.30
       - ORANGE_CONF=0.40          # YOLO COCO class 49 (the fruit), plus a 4-of-6 frame vote
-      - EXPLORE_CRUISE=0.18
+      - EXPLORE_CRUISE=0.30
       - EXPLORE_WMAX=0.12
       - EXPLORE_PIVOT_W=0.14
       - FOLLOW_STOP_DIST=0.25        # obstacle stop in FOLLOW (was 0.30); GUARD_M 0.20 hard stop unchanged

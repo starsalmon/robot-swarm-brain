@@ -38,7 +38,7 @@ def main():
     from rclpy.qos import qos_profile_sensor_data
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
-    from sensor_msgs.msg import CompressedImage, Range
+    from sensor_msgs.msg import CompressedImage, LaserScan, Range
     from std_msgs.msg import Bool, Float32, Float32MultiArray, String, UInt8, UInt16MultiArray, UInt32
 
     a = PF.args()
@@ -51,6 +51,38 @@ def main():
     NEED_WHISTLE = E("FOLLOW_NEED_WHISTLE", 1)        # 1 = FOLLOW only starts within WHISTLE_S of a whistle (Cain 2026-11-10)
     FOLLOW_MAX_S = E("FOLLOW_MAX_S", 120.0)            # whistle-started FOLLOW ends after this, back to EXPLORE
     GUARD_M = E("GUARD_M", 0.20)                        # hard obstacle stop distance for every mode
+    # Pro S3 STL-19P lidar (/rover/scan_sync). base_link -> lidar_link yaw -90 deg (scan angle 0 = starboard).
+    LIDAR_YAW = math.radians(E("LIDAR_YAW_DEG", -90.0))
+    LIDAR_SELF_M = E("LIDAR_SELF_M", 0.12)             # returns closer than this to the lidar centre = Rover itself
+    LIDAR_NOSE_X = E("LIDAR_NOSE_X", 0.12)             # lidar centre -> front bumper, m
+    LIDAR_HALF_W = E("LIDAR_HALF_W", 0.13)             # corridor half-width that counts as "ahead"
+    LIDAR_GUARD_M = E("LIDAR_GUARD_M", 0.15)           # hard stop: lidar obstacle this close to the nose, in the corridor
+    LIDAR_BODY_MARGIN = E("LIDAR_BODY_MARGIN", 0.02)   # corridor starts this far behind the nose (x > nose - margin)
+    LIDAR_BODY_INNER_W = E("LIDAR_BODY_INNER_W", 0.11) # beside-body band |y| >= this (and x < nose) is ignored
+    # Wedge detection (2026-11-13): commanding drive/turn but wheel odom does not move = wheel against a leg / under a table.
+    WEDGE_S = E("WEDGE_S", 2.5)                        # commanded motion this long with no odom motion -> wedged
+    WEDGE_MOVE_M = E("WEDGE_MOVE_M", 0.015)
+    WEDGE_YAW = math.radians(E("WEDGE_YAW_DEG", 4.0))
+    WEDGE_REAR_CLEAR_M = E("WEDGE_REAR_CLEAR_M", 0.30)  # rear sonar must show at least this to reverse out
+    WEDGE_MAX_TRIES = int(E("WEDGE_MAX_TRIES", 2))       # escapes within WEDGE_WINDOW_S before stopping motors
+    WEDGE_WINDOW_S = E("WEDGE_WINDOW_S", 60.0)
+    REAR_FRESH_S = E("REAR_FRESH_S", 1.2)               # sonar is ~3 Hz; 0.6 s often read as "unknown"
+    WEDGE_RESET_PATH_M = E("WEDGE_RESET_PATH_M", 0.40)  # drove this far since a wedge -> it no longer counts
+    REAR_GUARD_M = E("REAR_GUARD_M", 0.20)             # never command reverse with fresh rear sonar closer than this (or stale)
+    # 2026-11-13 15:40: Cain - reversing drags a wheel into skirting/furniture. NO_REVERSE=1 (default) turns every
+    # reverse into a stop/pivot; a wedge while pivoting escapes FORWARD when the front is clear, never backwards.
+    NO_REVERSE = E("NO_REVERSE", 1.0) >= 0.5
+    WEDGE_FWD_CLEAR_M = E("WEDGE_FWD_CLEAR_M", 0.30)   # front (L8/ToF and lidar) must show this to escape forward
+    # 2026-11-13 16:37: no pivot-in-place with a side ToF this tight (the tail swings into the skirting; the rear
+    # sonar cannot see it). Arc forward away from that wall if the front is clear, else hold still.
+    TAIL_SIDE_M = E("TAIL_SIDE_M", 0.18)
+    TAIL_FWD_M = E("TAIL_FWD_M", 0.28)
+    V_FLOOR = E("EXPLORE_V_FLOOR", 0.095)              # slowest forward command that actually turns the wheels on carpet
+    WEDGE_FWD_V = E("WEDGE_FWD_V", 0.13)
+    PIVOT_OUT_FRONT_M = E("PIVOT_OUT_FRONT_M", 0.0)    # nose clearance needed to turn on the spot instead of the forbidden reverse (0 = even touching)
+    CORNER_X_M = E("CORNER_X_M", 0.15); CORNER_Y_M = E("CORNER_Y_M", 0.08); CORNER_STOP_M = E("CORNER_STOP_M", 0.06)
+    if NO_REVERSE: WEDGE_MAX_TRIES = int(E("WEDGE_MAX_TRIES_NOREV", 3))
+    LIDAR_OFF_FLAG = "/opt/fleet/maps/lidar/house_run/lidar_guard.off"   # touch to disable the lidar guard live
     SEEK_W = E("WHISTLE_SEEK_W", 0.14)                 # turn-on-the-spot speed while looking for the whistler                     # approach speed while far
     ARU = PF.cv2.aruco
     TDICT = ARU.getPredefinedDictionary(ARU.DICT_APRILTAG_36h11); TPAR = ARU.DetectorParameters_create()
@@ -82,12 +114,21 @@ def main():
             s.create_subscription(Bool, "/rover/bump", lambda m: m.data and s.x.on_bump(time.monotonic(), "bump"), 10)
             s.create_subscription(Bool, "/rover/stall", lambda m: m.data and s.x.on_bump(time.monotonic(), "stall"), 10)
             s.create_subscription(Odometry, "/rover/odom/wheel", s.on_odom, 10)
+            # /rover/odom/wheel heading never changes (yaw stuck ~-65 deg all day): take turn evidence from the EKF (IMU) yaw.
+            s.fyaw = None; s.t_fyaw = -1e9
+            s.create_subscription(Odometry, "/odometry/filtered", s.on_fodom, 10)
+            # map-based explore (rover_frontier.py) + lidar forward clearance. Both optional: silence = old behaviour.
+            s.corner = {1: (9.0, -1e9), -1: (9.0, -1e9)}; s.pivot_sgn = (0.0, -1e9)
+            s.lidar_ahead = None; s.t_lidar = -1e9; s.lidar_off = False; s.t_lidar_flag = -1e9; s.hint = None; s.t_hint = -1e9
+            s.create_subscription(Float32MultiArray, "/rover/explore/goal_hint", s.on_hint, 10)
+            s.create_subscription(LaserScan, "/rover/scan_sync", s.on_scan, qos_profile_sensor_data)
             s.ptag = s.create_publisher(String, "/rover/apriltags", 10)
             s.pspk = s.create_publisher(UInt32, "/rover/speaker/code", 10); s.t_snd = 0.0; s.t_person_snd = -1e9
             s.create_subscription(Bool, "/fleet/allow_drive", s.on_allow, 10)
             s.create_subscription(Bool, "/rover/button", s.on_button, 10)
             s.t_whistle = -1e9
             s.side = {}; s.t_cols = -1e9; s.tof_trust = TofTrust(); s.t_guard_log = 0.0; s.guard_hits = 0
+            s.wd = None; s.wedge_esc = None; s.wedge_hist = deque(); s.wedged = None; s.t_odom = -1e9
             s.create_subscription(Bool, "/rover/whistle", s.on_whistle, 10)
             s.create_subscription(UInt8, "/rover/button_event", s.on_button_event, 10)
             s.create_subscription(Float32MultiArray, "/room/overhead", s.on_room, 10)
@@ -155,13 +196,61 @@ def main():
             if v > 0 and not fwd_trusted:
                 v = 0.0; hit.append("no trusted forward coverage")
             elif v > 0 and ahead < GUARD_M: v = 0.0; hit.append(f"ahead {ahead:.2f} m")
+            elif (v > 0 and not s.lidar_off and s.lidar_ahead is not None and now - s.t_lidar < 0.5
+                  and s.lidar_ahead < LIDAR_GUARD_M):
+                v = 0.0; hit.append(f"lidar ahead {s.lidar_ahead:.2f} m")
             elif v > 0 and not (l8_fresh or front_fresh): v = 0.0; hit.append("no valid front range (L8 centre + front ToF)")
             if w > 0 and (near("front_left") or near("left")): w = 0.0; hit.append("left side close")
             if w < 0 and (near("front_right") or near("right")): w = 0.0; hit.append("right side close")
+            if v > 0 and abs(w) > 0.02 and not s.lidar_off:
+                cl, tl = s.corner[1]; cr, tr = s.corner[-1]
+                cl = cl if now - tl < 0.5 else 9.0; cr = cr if now - tr < 0.5 else 9.0
+                if min(cl, cr) < CORNER_STOP_M and v > 0:
+                    # jamb/edge right at a nose corner: crawl straight only if the other corner is clear, never arc
+                    if max(cl, cr) < CORNER_STOP_M: v = 0.0
+                    else: v = min(v, 0.08)
+                    w = 0.0; hit.append(f"corner L {cl:.2f} R {cr:.2f}: no arc")
             if hit:
                 s.guard_hits += 1; why += " | GUARD: " + ", ".join(hit)
             s.g_ahead = ahead
             return v, w, why
+
+        def on_hint(s, m):
+            d = list(m.data)
+            if len(d) >= 4:
+                now = time.monotonic(); s.hint = d; s.t_hint = now
+                s.x.on_goal(d[0], d[1], int(round(d[3])), now)
+
+        def on_scan(s, m):
+            now = time.monotonic()
+            if now - s.t_lidar_flag > 1.0:
+                s.t_lidar_flag = now; s.lidar_off = os.path.exists(LIDAR_OFF_FLAG)
+            r = PF.np.asarray(m.ranges, dtype=float)
+            if r.size == 0: return
+            a = m.angle_min + PF.np.arange(r.size) * m.angle_increment + LIDAR_YAW
+            ok = PF.np.isfinite(r) & (r > max(LIDAR_SELF_M, m.range_min)) & (r < m.range_max)
+            if not ok.any(): return
+            x = r * PF.np.cos(a); y = r * PF.np.sin(a)
+            # 2026-11-13: only points at/after the nose count as ahead. Returns beside the body (x < nose, e.g. the
+            # self-return blob at +60..+100 deg, r 0.13-0.20 m) made ahead=0 -> lidar guard had to be switched off.
+            # Inside the body length (x < nose) only count points well inside the body width (an overhang over Rover,
+            # e.g. a couch lip); points at the body edge there are beside Rover / its own parts, not ahead.
+            body = (x < LIDAR_NOSE_X - LIDAR_BODY_MARGIN) & (PF.np.abs(y) >= LIDAR_BODY_INNER_W)
+            cor = ok & (x > 0) & (PF.np.abs(y) < LIDAR_HALF_W) & ~body
+            ahead = float(x[cor].min() - LIDAR_NOSE_X) if cor.any() else 4.0
+            ab = PF.np.abs(PF.np.arctan2(PF.np.sin(a), PF.np.cos(a)))
+            dg = ok & (ab > math.radians(16)) & (ab <= math.radians(50))
+            diag = float(r[dg].min() - LIDAR_NOSE_X) if dg.any() else 4.0
+            s.lidar_ahead = max(0.0, ahead); s.t_lidar = now
+            # 2026-11-13 17:40: front-corner bands just outside the corridor. A door jamb edge there is missed by the
+            # L8/ToF and by the corridor test, and an arcing turn swings the nose corner straight into it.
+            band = ok & (x > LIDAR_NOSE_X) & (x < LIDAR_NOSE_X + CORNER_X_M) & (PF.np.abs(y) >= LIDAR_HALF_W - 0.02) & (PF.np.abs(y) < LIDAR_HALF_W + CORNER_Y_M)
+            dist = PF.np.hypot(PF.np.maximum(x - LIDAR_NOSE_X, 0.0), PF.np.maximum(PF.np.abs(y) - LIDAR_HALF_W, 0.0))
+            for sg in (1, -1):
+                sel = band & ((y > 0) if sg > 0 else (y < 0))
+                s.corner[sg] = (float(dist[sel].min()) if sel.any() else 9.0, now)
+            if not s.lidar_off:
+                s.x.on_lidar(max(0.0, ahead), max(0.0, diag), now)
 
         def on_grid(s, m): s.f.l8 = PF.np.array(m.data, float).reshape(8, 8) / 1000.0; s.f.t_l8 = time.monotonic()
 
@@ -170,6 +259,10 @@ def main():
                 s.room = [float(x) for x in m.data[:7]]
                 if m.data[7] >= 1 and s.room[0] >= 1 and s.room[4] >= 1:   # only a CONFIRMED Rover + a voted orange counts
                     s.room_t = time.monotonic()
+
+        def on_fodom(s, m):
+            q = m.pose.pose.orientation
+            s.fyaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)); s.t_fyaw = time.monotonic()
 
         def on_odom(s, m):
             p = m.pose.pose; x, y = p.position.x, p.position.y; q = p.orientation
@@ -187,7 +280,7 @@ def main():
                 s.yrate = 0.6 * s.yrate + 0.4 * math.atan2(math.sin(yaw - s.yaw), math.cos(yaw - s.yaw)) / (now - s.t_yaw)
             s.t_yaw = now; s.f.yaw_hist.append((now, yaw))
             while len(s.f.yaw_hist) > 40: s.f.yaw_hist.popleft()
-            s.pose = (x, y); s.yaw = yaw
+            s.pose = (x, y); s.yaw = yaw; s.t_odom = now
             s.hist.append((now, x, y, s.path))
             while s.hist and now - s.hist[0][0] > 90: s.hist.popleft()
 
@@ -241,6 +334,8 @@ def main():
             s.heading = None; s.flipped = False; s.room_arrived = False
             s.celebrated = False; s.song = None; s.prev_r = None
             s.get_logger().info("Go tap -> " + ("START" if s.go else "STOP"))
+            s.wd = None; s.wedge_esc = None
+            if s.go: s.wedged = None; s.wedge_hist.clear()
             if not s.go:
                 s.halt("Go tap")
 
@@ -392,6 +487,72 @@ def main():
                 now = time.monotonic()
                 if now - s.t_person_snd > 5.0 and s.sound(1800, 2400, 2, 1, now, gap=0.0): s.t_person_snd = now
 
+        def wedge(s, now, v, w, why):
+            """Commanded drive/turn for WEDGE_S with wheel odom not moving = wedged (wheel on a table leg, body under
+            furniture where lidar/ToF still see open floor). Escape once: reverse if rear sonar is clearly open,
+            else turn the OTHER way. Repeated wedge inside WEDGE_WINDOW_S -> stop motors (go=False) instead of grinding."""
+            rear = s.f.rear if getattr(s.f, "rear", None) is not None and now - getattr(s.f, "t_rear", -1e9) < REAR_FRESH_S else None
+            e = s.wedge_esc
+            if e is not None:                                   # running an escape manoeuvre
+                age = now - e["t"]
+                for dur, ev, ew, tag in e["plan"]:
+                    if age < dur:
+                        if ev < 0 and (rear is None or rear < WEDGE_REAR_CLEAR_M): ev = 0.0   # rear closed in: no reverse
+                        if ev > 0: ev, _, why = s.guard(now, ev, 0.0, why)
+                        return ev, ew, f"{why} | WEDGE escape: {tag}"
+                    age -= dur
+                s.wedge_esc = None; s.wd = None
+                return v, w, why
+            cv, cw = s.cmd
+            active = abs(cv) >= 0.05 or abs(cw) >= 0.08
+            fy = s.fyaw if now - s.t_fyaw < 0.5 else None
+            if abs(cv) < 0.05 and fy is None:                    # pure turn but no working yaw source: cannot judge
+                s.wd = None; return v, w, why
+            if not active or s.pose is None:
+                s.wd = None; return v, w, why
+            if s.wd is None:
+                s.wd = (now, s.pose, fy, cw); return v, w, why
+            t0, p0, y0, w0 = s.wd
+            if now - t0 < WEDGE_S:
+                return v, w, why
+            moved = math.hypot(s.pose[0] - p0[0], s.pose[1] - p0[1])
+            dyaw = abs(math.atan2(math.sin(fy - y0), math.cos(fy - y0))) if (fy is not None and y0 is not None) else 0.0
+            if abs(cv) < 0.05 and (fy is None or y0 is None):
+                s.wd = None; return v, w, why
+            if moved >= WEDGE_MOVE_M or dyaw >= WEDGE_YAW:
+                s.wd = (now, s.pose, fy, cw); return v, w, why
+            # wedged
+            while s.wedge_hist and (now - s.wedge_hist[0][0] > WEDGE_WINDOW_S or s.path - s.wedge_hist[0][1] > WEDGE_RESET_PATH_M):
+                s.wedge_hist.popleft()
+            s.wedge_hist.append((now, s.path)); s.wd = None
+            n = len(s.wedge_hist)
+            odom_age = now - s.t_odom
+            msg = (f"WEDGED #{n}: cmd v={cv:.2f} w={cw:.2f} for {WEDGE_S:.1f}s, odom moved {moved*100:.1f} cm / {math.degrees(dyaw):.1f} deg "
+                   f"(odom age {odom_age:.1f}s), rear={None if rear is None else round(rear, 2)}")
+            rear_clear = rear is not None and rear >= WEDGE_REAR_CLEAR_M and not NO_REVERSE
+            if n > WEDGE_MAX_TRIES or (n >= 2 and not rear_clear and not NO_REVERSE):   # rear blocked: one other-way turn only, then stop
+                s.wedged = msg + " -> motors stopped"
+                s.go = False; s.halt(s.wedged); s.get_logger().warn(s.wedged)
+                return 0.0, 0.0, s.wedged
+            turn = -1.0 if (cw if abs(cw) > 1e-3 else w0) > 0 else 1.0     # the OTHER way from what was being commanded
+            if abs(cw) < 1e-3 and abs(w0) < 1e-3:
+                turn = s.x._open_side(now) or 1.0
+            pw = s.x.PIVOT_W
+            la = s.lidar_ahead if (s.lidar_ahead is not None and now - s.t_lidar < 0.5) else None
+            fwd_clear = getattr(s, "g_ahead", 0.0) >= WEDGE_FWD_CLEAR_M and (la is None or la >= WEDGE_FWD_CLEAR_M)
+            if NO_REVERSE and fwd_clear:
+                plan = [(1.2, WEDGE_FWD_V, 0.0, f"forward escape (ahead {s.g_ahead:.2f} m, lidar {'-' if la is None else f'{la:.2f}'} m)"),
+                        (1.0, 0.0, turn * pw, "turn " + ("left" if turn > 0 else "right"))]
+            elif NO_REVERSE:
+                plan = [(1.5, 0.0, turn * pw, "front closed, no reverse -> turn other way " + ("left" if turn > 0 else "right"))]
+            elif rear_clear:
+                plan = [(1.0, -0.14, 0.0, f"reverse (rear {rear:.2f} m clear)"), (1.2, 0.0, turn * pw, "turn " + ("left" if turn > 0 else "right"))]
+            else:
+                plan = [(1.5, 0.0, turn * pw, f"rear {'unknown' if rear is None else f'{rear:.2f} m'} -> no reverse, turn other way " + ("left" if turn > 0 else "right"))]
+            s.wedge_esc = dict(t=now, plan=plan)
+            s.get_logger().warn(msg + " -> " + plan[0][3])
+            return v, w, f"{why} | {msg}"
+
         def safety(s, now, v, w, why):
             """Shared obstacle clamp for ORANGE/overhead: never drive forward into something closer than 0.20 m
             unless that something is the orange Rover's own camera is centred on."""
@@ -466,16 +627,69 @@ def main():
             v_req, w_req = v, w
             v, w, why = s.guard(now, v, w, why)                   # no mode bypasses the obstacle guard
             if s.state == "EXPLORE" and s.allow and s.go:
-                rear = s.f.rear if getattr(s.f, "rear", None) is not None and now - getattr(s.f, "t_rear", -1e9) < 0.6 else None
+                rear = s.f.rear if getattr(s.f, "rear", None) is not None and now - getattr(s.f, "t_rear", -1e9) < REAR_FRESH_S else None
                 v2, w2, tag = unstick_explore(
                     v, w, v_req, w_req, s.side, now, getattr(s, "g_ahead", 9.0),
                     guard_m=GUARD_M, pivot_w=s.x.PIVOT_W, rear_m=rear, rear_fresh=rear is not None,
                 )
                 if tag:
                     v, w, why = v2, w2, f"{why} | {tag}"
-                    v, w, why = s.guard(now, v, w, why)
+                    if "pivot anyway" in tag:
+                        # Keep the escape turn; still block any forward motion into something close.
+                        v, _, why = s.guard(now, v, 0.0, why)
+                    else:
+                        v, w, why = s.guard(now, v, w, why)
+            if NO_REVERSE and v < 0 and s.state == "EXPLORE" and s.allow and s.go:
+                # 2026-11-13 17:30: nose ~0.19 m off a wall with a front corner ToF just inside GUARD_M made the turn
+                # guard veto both pivots, unstick asked for a reverse, NO_REVERSE held v=w=0 for 90 s and the
+                # supervisor called it stuck. If both body sides are clear (the tail has room) and nothing is
+                # touching the nose, turn on the spot toward the more open side instead of sitting there.
+                def _fr(nm):
+                    r, t = s.side.get(nm, (None, -1e9))
+                    return r if (r is not None and math.isfinite(r) and r > 0.02 and now - t < 0.6) else None
+                sl, sr = _fr("left"), _fr("right")
+                fvals = [r for r in (_fr("front"), _fr("front_left"), _fr("front_right")) if r is not None]
+                ga = getattr(s, "g_ahead", None)
+                if ga is not None: fvals.append(ga)
+                fmin = min(fvals) if fvals else 0.0
+                if (sl is None or sl >= TAIL_SIDE_M) and (sr is None or sr >= TAIL_SIDE_M) and fmin >= PIVOT_OUT_FRONT_M:
+                    L = min([r for r in (sl, _fr("front_left")) if r is not None] or [0.5])
+                    R = min([r for r in (sr, _fr("front_right")) if r is not None] or [0.5])
+                    ps, pt = s.pivot_sgn
+                    if ps and now - pt < 2.5: sgn = ps                # keep the chosen side; no left/right dithering
+                    else: sgn = 1.0 if L > R else -1.0
+                    s.pivot_sgn = (sgn, now)
+                    v, w = 0.0, sgn * s.x.PIVOT_W
+                    why += f" | NO_REVERSE: pivot out {'left' if sgn > 0 else 'right'} (sides L {L:.2f} R {R:.2f}, nose {fmin:.2f})"
+            if s.state == "EXPLORE" and s.allow and s.go:
+                v, w, why = s.wedge(now, v, w, why)
+            if s.state == "EXPLORE" and s.go and 0.005 < v < V_FLOOR:
+                # 2026-11-13 17:52: v 0.05-0.07 stalls the motors on the bedroom carpet (wheel odom 0 cm, SLAM pose
+                # frozen -> WEDGED x3). Any forward creep that passed the guards gets at least V_FLOOR.
+                v = V_FLOOR
+            if abs(v) < 0.03 and abs(w) > 0.05 and s.go:          # pivot in place: check the tail
+                def _sd(nm):
+                    r, t = s.side.get(nm, (None, -1e9))
+                    return r if (r is not None and math.isfinite(r) and now - t < 0.6) else None
+                sl, sr = _sd("left"), _sd("right")
+                tight = [(nm, r) for nm, r in (("left", sl), ("right", sr)) if r is not None and r < TAIL_SIDE_M]
+                if tight:
+                    nm, r = min(tight, key=lambda x: x[1])
+                    la = s.lidar_ahead if (s.lidar_ahead is not None and now - s.t_lidar < 0.5) else None
+                    fwd = getattr(s, "g_ahead", 0.0)
+                    if fwd >= TAIL_FWD_M and (la is None or la >= TAIL_FWD_M):
+                        v, w = 0.08, (-1.0 if nm == "left" else 1.0) * 0.10      # roll forward, nose away from the tight wall
+                        v, w, why = s.guard(now, v, w, why + f" | TAIL: {nm} {r:.2f} m, arc out forward instead of pivot")
+                    else:
+                        v, w = 0.0, 0.0; why += f" | TAIL: {nm} {r:.2f} m and front {fwd:.2f} m, hold (no pivot)"
+            if v < 0 and NO_REVERSE:                             # no reversing at all, and do NOT swap it for a pivot:
+                v = 0.0; w = 0.0; why += " | NO_REVERSE: hold (no reverse, no pivot)"   # pivots swing the tail into skirting (16:15)
+            if v < 0:                                            # rear guard for EVERY reverse (plant behind Rover)
+                rr = s.f.rear if getattr(s.f, "rear", None) is not None and now - getattr(s.f, "t_rear", -1e9) < REAR_FRESH_S else None
+                if rr is None or not math.isfinite(rr) or rr < REAR_GUARD_M:
+                    v = 0.0; why += f" | REAR GUARD: {'stale' if rr is None else f'{rr:.2f} m'}, no reverse"
             if not s.go:
-                v, w, why = 0.0, 0.0, "stopped — press Go"
+                v, w, why = 0.0, 0.0, "stopped — press Go" + (f" ({s.wedged})" if s.wedged else "")
             s.cmd = (float(v), float(w))
             if now - s.t_guard_log >= 1.0:
                 s.t_guard_log = now
@@ -500,7 +714,9 @@ def main():
                         why=why, tgt=f.target, ndet=len(f.dets), nfruit=len(f.fruit), orange_cam=ob, orange_room=room_orange,
                         dist=None if f.dist is None else round(f.dist, 2), bearing_deg=round(math.degrees(f.bearing), 1),
                         age=round(min(9.0, now - f.t_seen), 2), cam_age=round(min(99.0, now - f.t_img), 1), cam_live=cam_live, whistle=whistle, tags=[t["id"] for t in s.tag_vis],
-                        yaw_deg=None if s.yaw is None else round(math.degrees(s.yaw)), path_m=round(s.path, 2)))
+                        yaw_deg=None if s.yaw is None else round(math.degrees(s.yaw)), path_m=round(s.path, 2),
+                        map_goal=None if s.hint is None or now - s.t_hint > 1.5 else dict(bearing_deg=round(math.degrees(s.hint[0]), 1), look_m=round(s.hint[1], 2), path_m=round(s.hint[2], 2), state=int(round(s.hint[3]))),
+                        lidar_ahead=None if s.lidar_ahead is None or now - s.t_lidar > 0.5 else round(s.lidar_ahead, 2), lidar_guard_off=s.lidar_off))
             s.pst.publish(st)
 
     rclpy.init(); n = B()

@@ -13,7 +13,7 @@ Speeds are usable-power fractions (same units as /cmd_vel to the T-Display). Pos
 """
 import math, random
 
-from rover_guard_escape import GUARD_M_DEFAULT, clear_side, near_side, pick_open_side
+from rover_guard_escape import GUARD_M_DEFAULT, clear_side, near_side, pick_open_side  # noqa
 from rover_tof_forward import trusted_forward_min
 from rover_tof_geometry import in_forward_arc
 
@@ -23,16 +23,30 @@ E = lambda k, d: type(d)(__import__("os").environ.get(k, d))
 class Explorer:
     def __init__(s):
         s.CRUISE = E("EXPLORE_CRUISE", 0.18)     # was 0.12
+        # 2026-11-13 Grok Bot: container env has EXPLORE_CRUISE=0.30 (wander banged into things); hard cap cruise.
+        s.CRUISE = min(s.CRUISE, E("EXPLORE_CRUISE_CAP", 0.16))
         s.VMIN = E("EXPLORE_VMIN", 0.08)         # slowest forward creep near things
         s.WMAX = E("EXPLORE_WMAX", 0.12)         # arc turn cap (was 0.05/0.06 = straight lines)
         s.PIVOT_W = E("EXPLORE_PIVOT_W", 0.14)   # in-place turn when blocked (0.06 was the floor to pivot on carpet)
         s.STOP = E("EXPLORE_STOP_M", 0.25)       # closer than this ahead: pivot, no forward
+        # 2026-11-13 16:37: the old "once pivoting need STOP+0.20 (0.45 m) to go forward" lock trapped Rover
+        # pivoting at 0.33 m in a corner it could have driven out of. Small hysteresis only.
+        s.PIVOT_HYST = E("EXPLORE_PIVOT_HYST_M", 0.05)
+        s.ARC_MIN_AHEAD = E("EXPLORE_ARC_MIN_AHEAD_M", 0.32)   # goal behind / to the side: arc toward it if this clear
+        s.ARC_V = E("EXPLORE_ARC_V", 0.08)
         s.SLOW = E("EXPLORE_SLOW_M", 0.90)       # full speed beyond this
         s.SIDE = E("EXPLORE_SIDE_M", 0.30)       # side wall closer than this: steer off it
         s.STALE = E("EXPLORE_STALE_S", 1.0)
         s.rays = {}                               # name -> (bearing rad, range m, t)
         s.cols = None; s.t_cols = -1e9  # t_cols set when l8_cols updates (not on frozen repeat)
         s.v = 0.0; s.w = 0.0; s.wander = 0.0; s.pivot = 0.0; s.rec = None; s.t_last = None
+        # Map-based guidance (rover_frontier.py via /rover/explore/goal_hint) and lidar forward clearance.
+        s.GOAL_FRESH = E("EXPLORE_GOAL_FRESH_S", 1.5)
+        s.GOAL_K = E("EXPLORE_GOAL_K", 0.70)          # weight of the map goal vs reactive openness steer
+        s.GOAL_PIVOT_DEG = E("EXPLORE_GOAL_PIVOT_DEG", 70.0)  # goal further round than this: turn on the spot first
+        s.LIDAR_FRESH = E("EXPLORE_LIDAR_FRESH_S", 0.5)
+        s.goal = None                                 # (bearing rad +left, dist m, state, t)
+        s.lidar = None                                # (ahead m from nose, diag min m, t)
 
     # ---- inputs ----
     def on_cols(s, cols, now):
@@ -43,6 +57,20 @@ class Explorer:
             s.rays.pop(name, None)
             return
         s.rays[name] = (math.radians(bearing_deg), float(r), now)
+
+    def on_goal(s, bearing, dist, state, now):
+        s.goal = (float(bearing), float(dist), int(state), now)
+
+    def on_lidar(s, ahead, diag, now):
+        s.lidar = (float(ahead), float(diag), now)
+
+    def goal_fresh(s, now):
+        g = s.goal
+        return g is not None and g[2] == 1 and now - g[3] < s.GOAL_FRESH
+
+    def lidar_ahead(s, now):
+        L = s.lidar
+        return (L[0], L[1]) if L is not None and now - L[2] < s.LIDAR_FRESH else (None, None)
 
     def on_bump(s, now, why="bump"):
         if s.rec is None or now - s.rec["t"] > 1.5:
@@ -86,6 +114,11 @@ class Explorer:
         ahead, fwd_src = trusted_forward_min(
             s.cols, s.t_cols, s.rays, now, s.STALE, usable=lambda _n, _f: True,
         )
+        l_ahead, l_diag = s.lidar_ahead(now)
+        if ahead is not None and l_ahead is not None:
+            ahead = min(ahead, l_ahead)               # lidar can only make it more careful, never less
+        has_goal = s.goal_fresh(now)
+        gb = s.goal[0] if has_goal else 0.0
         if ahead is None and s.rec is None and not s.pivot:
             w = s._lateral_steer(now)
             return s._out(0.0, w, "explore: no trusted forward coverage", dt, hard=True)
@@ -101,11 +134,15 @@ class Explorer:
                 s.rec = None
         # blocked ahead: pivot toward the open side (committed until clear; hysteresis)
         a_blocked = ahead if ahead is not None else 0.0
-        if a_blocked < s.STOP or (s.pivot and a_blocked < s.STOP + 0.20):
+        if a_blocked < s.STOP or (s.pivot and a_blocked < s.STOP + s.PIVOT_HYST):
             guard_m = float(E("GUARD_M", GUARD_M_DEFAULT))
             sm = s._side_map(now)
             if not s.pivot:
                 s.pivot = pick_open_side(sm, now, guard_m=guard_m, fresh_s=min(s.STALE, 0.6))
+                if s.pivot and has_goal and abs(gb) > math.radians(10):
+                    want = 1.0 if gb > 0 else -1.0
+                    if want != s.pivot and not near_side(sm, now, ("front_left", "left") if want > 0 else ("front_right", "right"), guard_m=guard_m):
+                        s.pivot = want                # both sides passable: turn toward the map goal
                 if s.pivot is None:
                     return s._out(-0.14, 0.0, f"explore: blocked {a_blocked:.2f} m, no fresh side gap, reverse", dt, hard=True)
             elif s.pivot > 0 and near_side(sm, now, ("front_left", "left"), guard_m=guard_m):
@@ -116,8 +153,16 @@ class Explorer:
                     s.pivot = 1.0
             return s._out(0.0, s.pivot * s.PIVOT_W, f"explore: blocked {a_blocked:.2f} m, pivot {'left' if s.pivot > 0 else 'right'}", dt, hard=True)
         s.pivot = 0.0
+        # map goal far round to the side/behind: turn toward it on the spot (guard still vetoes a turn into a near wall)
+        if has_goal and abs(gb) > math.radians(s.GOAL_PIVOT_DEG):
+            sgn = 1.0 if gb > 0 else -1.0
+            if ahead >= s.ARC_MIN_AHEAD:                 # room to roll: arc round to the goal instead of spinning in place
+                return s._out(s.ARC_V, sgn * s.WMAX, f"explore[map]: goal {math.degrees(gb):+.0f} deg, arcing to it (ahead {ahead:.2f} m)", dt)
+            return s._out(0.0, sgn * s.PIVOT_W, f"explore[map]: goal {math.degrees(gb):+.0f} deg, turning to it", dt)
         # forward speed from clearance ahead (and the +-45 diagonals, at half weight)
         diag = min([r for b, r in rays if math.radians(16) < abs(b) <= math.radians(50)] or [4.0])
+        if l_diag is not None:
+            diag = min(diag, l_diag)
         clear = min(ahead, 0.5 * (diag + ahead) if diag < ahead else ahead)
         k = max(0.0, min(1.0, (clear - s.STOP) / (s.SLOW - s.STOP)))
         v = s.VMIN + (s.CRUISE - s.VMIN) * k
@@ -142,6 +187,14 @@ class Explorer:
         # slow wander (Ornstein-Uhlenbeck) so open space is covered in arcs, not straight lines
         s.wander += -s.wander * 0.15 * dt + random.gauss(0.0, 0.35) * math.sqrt(dt)
         s.wander = max(-1.0, min(1.0, s.wander))
+        if has_goal:
+            # follow the map path: goal bearing dominates, reactive openness/side push still shape it near
+            # obstacles; no random wander (that is what used to re-cover the same floor)
+            g = max(-1.0, min(1.0, gb / math.radians(35.0)))
+            mix = s.GOAL_K * (1.0 - 0.5 * urgency)
+            w = s.WMAX * max(-1.0, min(1.0, mix * 1.6 * g + (1.0 - mix) * (1.2 + 2.5 * urgency) * steer + 1.5 * push))
+            v *= max(0.35, math.cos(min(abs(gb), math.radians(80))))   # slow while the nose is off the path
+            return s._out(v, w, f"explore[map]: goal {math.degrees(gb):+.0f} deg {s.goal[1]:.1f} m, ahead {ahead:.2f} m, v {v:.2f}, steer {w:+.2f}", dt)
         w = s.WMAX * max(-1.0, min(1.0, (1.2 + 2.5 * urgency) * steer + 1.5 * push + 1.0 * s.wander * k))
         return s._out(v, w, f"explore: ahead {ahead:.2f} m, v {v:.2f}, steer {w:+.2f}", dt)
 
