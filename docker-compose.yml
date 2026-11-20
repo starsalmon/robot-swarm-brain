@@ -358,6 +358,28 @@ services:
       --params-file /opt/fleet/config/ekf_rover.yaml"
     restart: unless-stopped
 
+  # Rebuilds /rover/scan from the Pro S3's best-effort /rover/scan_slice (4 x 125-bin
+  # LaserScans per revolution; micro-ROS best effort cannot fragment a 4 kB scan).
+  # Every /rover/scan consumer (rover_scan_stamp -> /rover/scan_sync, slam, rover-behaviour,
+  # explore) depends on this. Missing slice: >= 3 of 4 published with a NaN wedge, else dropped.
+  # Image is the local rover-lidar-slam:jazzy (rclpy + sensor_msgs). No depends_on on purpose:
+  # start it alone with `docker compose up -d --no-deps rover-scan-assemble`.
+  rover-scan-assemble:
+    image: rover-lidar-slam:jazzy
+    container_name: rover-scan-assemble
+    network_mode: host
+    volumes:
+      - .:/opt/fleet:ro
+    environment:
+      - ROS_DOMAIN_ID=0
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/opt/fleet/fastdds_udp.xml
+      - SCAN_MIN_SLICES=3
+      - SCAN_ASSEMBLE_TIMEOUT_S=0.25
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+      exec python3 -u /opt/fleet/maps/lidar/scan_assemble.py"
+    restart: unless-stopped
+
   # Monocular metric depth (Depth Anything V2 Metric-Indoor-Small) on the RTX 2060.
   # Person following (YOLO11s + ByteTrack). Not started by default. Dry-run: publishes /rover/follow/cmd,
   # /rover/follow/status, /rover/follow/debug/compressed only, never /cmd_vel.
