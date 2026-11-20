@@ -20,7 +20,7 @@ cleanup() {
   echo "cleanup done: allow_drive OFF (retained), session off, rover-brain unpaused"
 }
 trap cleanup EXIT
-docker exec -d fleet-shell bash -c "source /opt/ros/jazzy/setup.bash; cd /tmp; timeout $BAGSECS ros2 bag record -o $BAG \
+docker exec -d fleet-shell bash -c "source /opt/ros/jazzy/setup.bash; cd /tmp; timeout $BAGSECS ros2 bag record --qos-profile-overrides-path /opt/fleet/rover-record-qos.yaml -o $BAG \
   /rover/camera/image_raw/compressed /rover/camera/image_rect/compressed /rover/camera/depth_small \
   /rover/odom/wheel /odometry/filtered /imu/data /rover/imu/stamped /rover/wheel/left_ticks /rover/wheel/right_ticks \
   /rover/tof/front /rover/tof/l8_cols /rover/tof/l8_grid /rover/tof/left /rover/tof/right /rover/camera/camera_info /cmd_vel /tf /tf_static >/tmp/$BAG.log 2>&1"

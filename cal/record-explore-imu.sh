@@ -22,19 +22,20 @@ python3 <<'PY'
 import csv, os, time
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 
-QOS = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+CMD_QOS = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+IMU_QOS = qos_profile_sensor_data
 
 class L(Node):
     def __init__(self):
         super().__init__('rec')
         ns = os.environ['NS']
         self.rows = []
-        self.create_subscription(Imu, f'/{ns}/imu', self.imu, QOS)
-        self.create_subscription(Twist, f'/{ns}/cmd_vel', self.cmd, QOS)
+        self.create_subscription(Imu, f'/{ns}/imu', self.imu, IMU_QOS)
+        self.create_subscription(Twist, f'/{ns}/cmd_vel', self.cmd, CMD_QOS)
     def imu(self, m):
         self.rows.append(('imu', time.time(), m))
     def cmd(self, m):

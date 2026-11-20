@@ -41,6 +41,8 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool, UInt32
 
+from rover_qos import TELEMETRY_QOS
+
 DIAG_YAW_RE = re.compile(r"yaw=([-\d.]+)")
 
 
@@ -149,9 +151,9 @@ class StraightYawHold(Node):
         self._use_integ = args.yaw_source == "gyro"
 
         self.diag = DiagCrossCheck(args.telem_dir)
-        self.create_subscription(Imu, "/imu/data", self._on_imu, 20)
-        self.create_subscription(UInt32, "/rover/wheel/left_ticks", lambda m: setattr(self, "wl", int(m.data)), 10)
-        self.create_subscription(UInt32, "/rover/wheel/right_ticks", lambda m: setattr(self, "wr", int(m.data)), 10)
+        self.create_subscription(Imu, "/imu/data", self._on_imu, TELEMETRY_QOS)
+        self.create_subscription(UInt32, "/rover/wheel/left_ticks", lambda m: setattr(self, "wl", int(m.data)), TELEMETRY_QOS)
+        self.create_subscription(UInt32, "/rover/wheel/right_ticks", lambda m: setattr(self, "wr", int(m.data)), TELEMETRY_QOS)
 
     def _on_imu(self, msg: Imu) -> None:
         now = time.monotonic()

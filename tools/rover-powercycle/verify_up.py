@@ -28,13 +28,13 @@ tms = int(re.search(r"t=(\d+)", o2["line"]).group(1))
 tof_diag = re.search(r"tof=([-\d.,]+)", o2["line"]).group(1)
 bat = float(re.search(r"bat=([-\d.]+)", o2["line"]).group(1))
 
-rc, imu = ros("timeout 4 ros2 topic echo /imu/data --once")
+rc, imu = ros("timeout 4 ros2 topic echo /imu/data --once --qos-reliability best_effort")
 m = re.search(r"orientation_covariance:\n((?:- .*\n){9})", imu)
 cov_yaw = None
 if m:
     vals = [x.strip("- ").strip() for x in m.group(1).strip().splitlines()]
     cov_yaw = vals[8] if len(vals) == 9 else None
-rc, hz_out = ros("timeout 7 ros2 topic hz /imu/data")
+rc, hz_out = ros("timeout 7 ros2 topic hz /imu/data --qos-reliability best_effort")
 hz_m = re.findall(r"average rate:\s*([\d.]+)", hz_out)
 imu_hz = float(hz_m[-1]) if hz_m else None
 imu_ok = cov_yaw is not None and "nan" not in cov_yaw.lower() and imu_hz and imu_hz > 0.5

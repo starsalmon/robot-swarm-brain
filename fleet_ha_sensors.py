@@ -43,9 +43,15 @@ BEEPER_M_PER_COUNT = math.pi * 0.030 / 980.0
 
 
 def subscribe_both(node: Node, typ, topic: str, cb) -> None:
-    """Subscribe BEST_EFFORT and RELIABLE so micro-ROS default and sensor QoS both work."""
+    """Subscribe BEST_EFFORT only.
+
+    A best-effort subscriber receives both best-effort publishers (Rover
+    T-Display telemetry after the 2026-11-20 QoS change) and reliable ones
+    (other bots that still use the micro-ROS default). A reliable subscriber
+    does not receive from a best-effort publisher, so the old dual subscribe
+    left fleet-ha with dead RELIABLE IMU/tick/battery subscriptions.
+    """
     node.create_subscription(typ, topic, cb, BE_QOS)
-    node.create_subscription(typ, topic, cb, REL_QOS)
 
 
 def _finite(v: float) -> bool:

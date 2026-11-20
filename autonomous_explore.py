@@ -13,7 +13,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool, UInt32
 
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 from rover_ir import close as ir_close
 from rover_radar import BackgroundRadar, cruise_radar_enabled, pick_escape_spin
 from rover_ring_ipc import emit as ring_emit
@@ -169,16 +169,16 @@ class AutonomousExplore(Node):
         self.pub = self.create_publisher(Twist, '/cmd_vel', CMD_VEL_QOS)
         self.create_subscription(Bool, '/rover/bump', self._on_bump, 10)
         self.create_subscription(Bool, '/rover/stall', self._on_stall, 10)
-        self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
+        self.create_subscription(Imu, '/imu/data', self._on_imu, TELEMETRY_QOS)
 
         self._wheel: WheelOdometry | None = None
         if wheel_odom_enabled():
             self._wheel = WheelOdometry()
             self.create_subscription(
-                UInt32, '/rover/wheel/left_ticks', self._on_wheel_left, 10
+                UInt32, '/rover/wheel/left_ticks', self._on_wheel_left, TELEMETRY_QOS
             )
             self.create_subscription(
-                UInt32, '/rover/wheel/right_ticks', self._on_wheel_right, 10
+                UInt32, '/rover/wheel/right_ticks', self._on_wheel_right, TELEMETRY_QOS
             )
 
         self.mode = Mode.WANDER

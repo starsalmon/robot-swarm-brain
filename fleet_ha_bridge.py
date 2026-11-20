@@ -150,8 +150,8 @@ class FleetHaBridge(Node):
 
         for bot in self._robots.values():
             if bot.battery_topic:
-                # Subscribe both QoS: classic micro-ROS default is RELIABLE, but
-                # Beeper (and some newer firmware) publish BEST_EFFORT.
+                # BEST_EFFORT: matches Rover T-Display telemetry and still
+                # receives reliable publishers from the other bots.
                 subscribe_both(
                     self,
                     Float32,

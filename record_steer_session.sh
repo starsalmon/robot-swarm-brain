@@ -60,6 +60,7 @@ echo "=============================================="
 echo ""
 
 ros2 bag record \
+  --qos-profile-overrides-path "$(dirname "$0")/rover-record-qos.yaml" \
   --topics /cmd_vel /imu/data \
   -s mcap \
   -d "$SECS" \

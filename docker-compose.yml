@@ -415,7 +415,7 @@ services:
       - FOLLOW_WMAX=0.10
       - FOLLOW_CONF=0.30
       - ORANGE_CONF=0.40          # YOLO COCO class 49 (the fruit), plus a 4-of-6 frame vote
-      - EXPLORE_CRUISE=0.18
+      - EXPLORE_CRUISE=0.30
       - EXPLORE_WMAX=0.12
       - EXPLORE_PIVOT_W=0.14
       - FOLLOW_STOP_DIST=0.25        # obstacle stop in FOLLOW (was 0.30); GUARD_M 0.20 hard stop unchanged
@@ -424,6 +424,8 @@ services:
       - BEHAVIOUR_ENTER_S=0.5
       - BEHAVIOUR_EXIT_S=5.0
       - FOLLOW_NEED_WHISTLE=1      # FOLLOW only after a whistle (/rover/whistle); Beeper stays follow-on-sight
+      - WHISTLE_S=0                 # local tweak 2026-11-14: no SEEK window
+      - WHISTLE_SEEK_W=0            # local tweak 2026-11-14: no SEEK spin
       - FOLLOW_MAX_S=120
       - TAG_SIZE_M=0.10          # tag36h11, tags_100mm.pdf
     command: >

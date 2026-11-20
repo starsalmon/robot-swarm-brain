@@ -15,7 +15,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu, Range
 from std_msgs.msg import Bool, Float32, UInt8
 
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 from rover_radar import background_instance, clearest_gap_led, scan_hits
 from rover_scan_map import led_to_bearing
 from rover_twist import wire_to_logical
@@ -79,7 +79,7 @@ class SonarEscapeRecorder(Node):
         self.create_subscription(Float32, '/rover/sonar/escape_turn', self._on_escape_turn, 10)
         self.create_subscription(Float32, '/rover/sonar/escape_best_deg', self._on_escape_best_deg, 10)
         self.create_subscription(Float32, '/rover/sonar/escape_best_m', self._on_escape_best_m, 10)
-        self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
+        self.create_subscription(Imu, '/imu/data', self._on_imu, TELEMETRY_QOS)
         self.create_subscription(Twist, '/cmd_vel', self._on_cmd, CMD_VEL_QOS)
         self.create_timer(0.1, self._tick_followups)
 

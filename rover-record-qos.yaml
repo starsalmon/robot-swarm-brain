@@ -133,3 +133,28 @@
   history: keep_last
   depth: 10
 
+
+/rover/wheel/left_ticks_signed:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/wheel/right_ticks_signed:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/drive_diag:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/ir/detected:
+  reliability: best_effort
+  history: keep_last
+  depth: 10
+
+/rover/ir/peer:
+  reliability: best_effort
+  history: keep_last
+  depth: 10

@@ -18,7 +18,7 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from std_msgs.msg import Bool, UInt32
 
 sys.path.insert(0, '/opt/fleet')
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 
 BTN_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -50,8 +50,8 @@ class WheelTickCal(Node):
         self._sample_combined: int | None = None
         self._sample_t: float | None = None
         self._driving = False
-        self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_l, 10)
-        self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_r, 10)
+        self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_l, TELEMETRY_QOS)
+        self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_r, TELEMETRY_QOS)
         self.create_subscription(Twist, '/cmd_vel', self._on_cmd, CMD_VEL_QOS)
         self.create_subscription(Bool, '/rover/session', self._on_session, BTN_QOS)
         self.create_timer(SAMPLE_DT, self._sample)

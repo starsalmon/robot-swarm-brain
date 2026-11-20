@@ -17,7 +17,7 @@ docker run --rm $TTY_FLAG --network host \
 deadline=$((SECONDS + WAIT))
 while (( SECONDS < deadline )); do
   if ros2 topic list 2>/dev/null | grep -Fxq "$TOPIC"; then
-    if out=$(timeout 3 ros2 topic echo "$TOPIC" --once 2>/dev/null); then
+    if out=$(timeout 3 ros2 topic echo "$TOPIC" --once --qos-reliability best_effort 2>/dev/null); then
       if printf "%s\n" "$out" | grep -q "^data:"; then
         printf "%s\n" "$out" | grep "^data:"
         exit 0

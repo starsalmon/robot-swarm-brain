@@ -33,7 +33,7 @@ cleanup() {
 trap cleanup EXIT
 trap "exit 130" INT TERM
 docker compose --profile follow stop rover-follow >/dev/null 2>&1
-docker exec -d fleet-shell bash -c "source /opt/ros/jazzy/setup.bash; cd /tmp; timeout $BAGSECS ros2 bag record -o $BAG \
+docker exec -d fleet-shell bash -c "source /opt/ros/jazzy/setup.bash; cd /tmp; timeout $BAGSECS ros2 bag record --qos-profile-overrides-path /opt/fleet/rover-record-qos.yaml -o $BAG \
   /rover/camera/image_raw/compressed /rover/follow/cmd /rover/follow/status /rover/odom/wheel /imu/data \
   /rover/wheel/left_ticks /rover/wheel/right_ticks /rover/tof/front /rover/tof/l8_cols /rover/tof/l8_grid /cmd_vel >/tmp/$BAG.log 2>&1"
 sleep 4
