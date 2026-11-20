@@ -10,6 +10,7 @@ import math
 import os
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import TransformStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -45,10 +46,10 @@ class RoverNavSensors(Node):
         from std_msgs.msg import UInt32
         self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_left, TELEMETRY_QOS)
         self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_right, TELEMETRY_QOS)
-        self.create_subscription(Range, '/rover/tof/left', self._on_tof_l, 10)
-        self.create_subscription(Range, '/rover/tof/right', self._on_tof_r, 10)
-        self.create_subscription(Range, '/rover/sonar/range', self._on_sonar, 10)
-        self.create_subscription(Float32MultiArray, '/rover/tof/l8_cols', self._on_cols, 10)
+        self.create_subscription(Range, '/rover/tof/left', self._on_tof_l, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/tof/right', self._on_tof_r, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_sonar, qos_profile_sensor_data)
+        self.create_subscription(Float32MultiArray, '/rover/tof/l8_cols', self._on_cols, qos_profile_sensor_data)
 
         self._odom_pub = self.create_publisher(Odometry, '/odom', 10)
         self._scan_pub = self.create_publisher(LaserScan, '/scan', 10)

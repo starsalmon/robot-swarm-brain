@@ -13,6 +13,7 @@ if |error| > --corr-tol, runs up to --corr-max short slow correction turns with 
 """
 import argparse, json, math, time
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu, Range
@@ -30,9 +31,9 @@ class SafeDrive(Node):
         self.t = {k: 0.0 for k in self.v}
         def st(k, f):
             return lambda m: (self.v.__setitem__(k, f(m)), self.t.__setitem__(k, time.monotonic()))
-        self.create_subscription(Range, "/rover/tof/front", st("l8", lambda m: m.range), 10)
+        self.create_subscription(Range, "/rover/tof/front", st("l8", lambda m: m.range), qos_profile_sensor_data)
         self.create_subscription(Float32MultiArray, "/rover/tof/l8_cols",
-                                 st("cols", lambda m: min([x for x in m.data if x > 0.02] or [9.0])), 10)
+                                 st("cols", lambda m: min([x for x in m.data if x > 0.02] or [9.0])), qos_profile_sensor_data)
         self.create_subscription(UInt32, "/rover/wheel/left_ticks", st("tl", lambda m: m.data), TELEMETRY_QOS)
         self.create_subscription(UInt32, "/rover/wheel/right_ticks", st("tr", lambda m: m.data), TELEMETRY_QOS)
         self.yaw = 0.0; self.gz_last = None; self.rate = 0.0

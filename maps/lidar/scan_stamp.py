@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 
@@ -20,7 +21,7 @@ class ScanStamp(Node):
     def __init__(self):
         super().__init__("rover_scan_stamp")
         self.pub = self.create_publisher(LaserScan, "/rover/scan_sync", 10)
-        self.create_subscription(LaserScan, "/rover/scan", self._cb, 10)
+        self.create_subscription(LaserScan, "/rover/scan", self._cb, qos_profile_sensor_data)
         self.create_timer(0.3, self._flush_health)
         self._n = 0
         self._last = None

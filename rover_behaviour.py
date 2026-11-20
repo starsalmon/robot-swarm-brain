@@ -110,12 +110,12 @@ def main():
             f = s.f
             s.yrate = 0.0; s.t_yaw = 0.0; f.yaw_hist = deque(); f.yaw_fn = lambda: s.yaw or 0.0; f.rate_fn = lambda: s.yrate
             s.create_subscription(CompressedImage, "/rover/camera/image_raw/compressed", lambda m: setattr(s, "img", m), qos_profile_sensor_data)
-            s.create_subscription(UInt16MultiArray, "/rover/tof/l8_grid", s.on_grid, 10)
-            s.create_subscription(Float32MultiArray, "/rover/tof/l8_cols", s.on_cols, 10)
-            s.create_subscription(Range, "/rover/tof/front", s.on_front, 10)
+            s.create_subscription(UInt16MultiArray, "/rover/tof/l8_grid", s.on_grid, qos_profile_sensor_data)
+            s.create_subscription(Float32MultiArray, "/rover/tof/l8_cols", s.on_cols, qos_profile_sensor_data)
+            s.create_subscription(Range, "/rover/tof/front", s.on_front, qos_profile_sensor_data)
             s.create_subscription(Range, "/rover/sonar/range", lambda m: (setattr(f, "sonar_r", m.range), setattr(f, "t_sonar", time.monotonic())), qos_profile_sensor_data)
             for tp, b in (("left", 90), ("right", -90), ("front_left", 45), ("front_right", -45)):
-                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: s.on_tof(tp, b, m), 10)
+                s.create_subscription(Range, f"/rover/tof/{tp}", lambda m, tp=tp, b=b: s.on_tof(tp, b, m), qos_profile_sensor_data)
             s.create_subscription(Bool, "/rover/bump", lambda m: m.data and s.x.on_bump(time.monotonic(), "bump"), 10)
             s.create_subscription(Bool, "/rover/stall", lambda m: m.data and s.x.on_bump(time.monotonic(), "stall"), 10)
             s.create_subscription(Odometry, "/rover/odom/wheel", s.on_odom, 10)

@@ -15,7 +15,7 @@ import os, threading, time
 from collections import deque
 import cv2, numpy as np, rclpy, rclpy.executors, torch
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Range
 from transformers import AutoModelForDepthEstimation
 
@@ -46,7 +46,7 @@ class Depth(Node):
         self.pub_dsi = self.create_publisher(CameraInfo, "/rover/camera/depth_small/camera_info", rel)
         self.create_subscription(CompressedImage, "/rover/camera/image_raw/compressed", self.on_img, be)
         self.create_subscription(CameraInfo, "/rover/camera/camera_info", self.on_info, be)
-        self.create_subscription(Range, "/rover/tof/front", self.on_tof, 10)
+        self.create_subscription(Range, "/rover/tof/front", self.on_tof, qos_profile_sensor_data)
         self.info = None; self.maps = None; self.latest = None
         self.tof = (None, 0.0)
         self.ratios = deque(maxlen=60); self.scale = 1.0

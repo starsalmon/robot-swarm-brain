@@ -391,9 +391,9 @@ def live(a):
             super().__init__("person_follow")
             s.f = Follower(a); s.img = None; s.t0 = time.monotonic(); s.hb = 0.0; s.done = None
             s.create_subscription(CompressedImage, "/rover/camera/image_raw/compressed", s.on_img, qos_profile_sensor_data)
-            s.create_subscription(UInt16MultiArray, "/rover/tof/l8_grid", s.on_grid, 10)
-            s.create_subscription(Float32MultiArray, "/rover/tof/l8_cols", s.on_cols, 10)
-            s.create_subscription(Range, "/rover/tof/front", lambda m: (setattr(s.f, "front", m.range if m.range > 0.02 else None), setattr(s.f, "t_front", time.monotonic())), 10)
+            s.create_subscription(UInt16MultiArray, "/rover/tof/l8_grid", s.on_grid, qos_profile_sensor_data)
+            s.create_subscription(Float32MultiArray, "/rover/tof/l8_cols", s.on_cols, qos_profile_sensor_data)
+            s.create_subscription(Range, "/rover/tof/front", lambda m: (setattr(s.f, "front", m.range if m.range > 0.02 else None), setattr(s.f, "t_front", time.monotonic())), qos_profile_sensor_data)
             from nav_msgs.msg import Odometry
             from std_msgs.msg import Float32
             s.create_subscription(Range, "/rover/sonar/range", lambda m: (setattr(s.f, "rear", m.range), setattr(s.f, "t_rear", time.monotonic())), qos_profile_sensor_data)

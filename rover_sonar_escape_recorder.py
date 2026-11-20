@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, Range
@@ -72,7 +73,7 @@ class SonarEscapeRecorder(Node):
         self._esp_best_m = 0.0
         self._esp_event_id = 0
 
-        self.create_subscription(Range, '/rover/sonar/range', self._on_range, 10)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_range, qos_profile_sensor_data)
         self.create_subscription(Float32, '/rover/sonar/pan_deg', self._on_pan, 10)
         self.create_subscription(Bool, '/rover/sonar/avoid_active', self._on_avoid, 10)
         self.create_subscription(UInt8, '/rover/sonar/escape_event', self._on_escape_event, 10)
