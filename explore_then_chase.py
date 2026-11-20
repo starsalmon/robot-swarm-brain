@@ -44,11 +44,11 @@ class ExploreThenChase(Node):
         self.create_subscription(Imu, f'/{ns}/' + os.environ.get('IMU_TOPIC', 'imu').strip('/'), self._on_imu, qos_profile_sensor_data)
         self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_ir, qos_profile_sensor_data)
         self.create_subscription(UInt8, f'/{ns}/ir/peer', self._on_ir_peer, qos_profile_sensor_data)
-        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
+        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, qos_profile_sensor_data)
         # Side IR proximity: binary, trips at ~5 cm. Very-close only, NOT gap/range info.
         self._side = {'l': (False, 0.0), 'r': (False, 0.0)}
-        self.create_subscription(Bool, f'/{ns}/side/left', lambda m: self._on_side('l', m), 10)
-        self.create_subscription(Bool, f'/{ns}/side/right', lambda m: self._on_side('r', m), 10)
+        self.create_subscription(Bool, f'/{ns}/side/left', lambda m: self._on_side('l', m), qos_profile_sensor_data)
+        self.create_subscription(Bool, f'/{ns}/side/right', lambda m: self._on_side('r', m), qos_profile_sensor_data)
         self.SIDE_STEER = float(os.environ.get('SIDE_STEER', '0.5'))
         self.SIDE_SLOW = float(os.environ.get('SIDE_SLOW', '0.5'))
         self._side_log = ''
