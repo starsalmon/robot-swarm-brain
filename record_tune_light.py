@@ -14,7 +14,7 @@ from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Imu
 
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 from rover_twist import wire_to_logical
 
 
@@ -31,7 +31,7 @@ class TuneLogger(Node):
         self.cmd_n = 0
         self.imu_n = 0
         self.create_subscription(Twist, '/cmd_vel', self._on_cmd, CMD_VEL_QOS)
-        self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
+        self.create_subscription(Imu, '/imu/data', self._on_imu, TELEMETRY_QOS)
         self.create_timer(0.2, self._check_done)
 
     def _write(self, fp, row: dict) -> None:

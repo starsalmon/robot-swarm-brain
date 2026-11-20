@@ -7,6 +7,7 @@ import os
 import time
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from rclpy.node import Node
 from sensor_msgs.msg import Range
 from std_msgs.msg import Float32
@@ -53,7 +54,7 @@ class SonarRingNode(Node):
         self._center = _pan_center()
         self._hold_until = 0.0
         self._scanning = False
-        self.create_subscription(Range, '/rover/sonar/range', self._on_range, 10)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_range, qos_profile_sensor_data)
         self.create_subscription(Float32, '/rover/sonar/pan_deg', self._on_pan, 10)
         self.create_timer(0.05, self._tick)
         ring_set_mode('sonar')

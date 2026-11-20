@@ -153,9 +153,17 @@ def unstick_explore(
         elif not want_left and clear_side(side, now, ("left", "front_left"), guard_m=guard_m, fresh_s=fresh_s):
             w = abs(pivot_w if abs(w_req) < 1e-3 else w_req)
             tag = "unstick: pivot left (right guard)"
-    if v == 0.0 and w == 0.0 and ahead < guard_m and abs(w_req) > 1e-6:
+    # Reverse whenever a requested pivot was fully zeroed, even if ToF/L8 "ahead"
+    # is still outside guard_m (lidar can show a tighter blockage). Sitting still
+    # while asking to turn is boxed-in.
+    if v == 0.0 and w == 0.0 and abs(w_req) > 1e-6:
         rear_ok = rear_m is None or not rear_fresh or rear_m >= guard_m
         if rear_ok:
             v = reverse_v
             tag = (tag + "; reverse" if tag else "unstick: reverse (pivot boxed)")
+        else:
+            # Rear is actually close (a plant, a wall). Do not reverse into it;
+            # take the requested pivot even if a front-corner ToF is a bit tight.
+            w = (pivot_w if abs(w_req) < 1e-3 else abs(w_req)) * (1.0 if w_req > 0 else -1.0)
+            tag = "unstick: pivot anyway (rear blocked)"
     return v, w, tag

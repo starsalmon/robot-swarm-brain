@@ -10,6 +10,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu
 
 
@@ -24,7 +25,7 @@ class ImuMotionTest(Node):
         super().__init__('imu_motion_test')
         ns = _ns()
         self._pub = self.create_publisher(Twist, f'/{ns}/cmd_vel', 10)
-        self._imu_sub = self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, 10)
+        self._imu_sub = self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, qos_profile_sensor_data)
         self._yaw = 0.0
         self._imu_last: float | None = None
         self._gz_samples: list[float] = []

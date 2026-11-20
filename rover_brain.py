@@ -12,6 +12,7 @@ import os
 import time
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, Range
@@ -19,7 +20,7 @@ from std_msgs.msg import Bool, Float32, Float32MultiArray, UInt8, UInt32
 
 from explore_controller import ExploreController
 from hallway_follow import HallwayConfig, HallwayFollow
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 from cmd_vel_slew import CmdVelSlew
 from rover_motion import shape_explore_cmd
 from rover_wheel_odom import WheelOdometry
@@ -94,22 +95,22 @@ class RoverBrain(Node):
         self.create_subscription(Bool, '/rover/button', self._on_button, 10)
         self.create_subscription(UInt8, '/rover/button_event', self._on_button_event, 10)
         self.create_subscription(UInt8, '/rover/drive_mode', self._on_drive_mode, 10)
-        self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
+        self.create_subscription(Imu, '/imu/data', self._on_imu, TELEMETRY_QOS)
         self.create_subscription(Bool, '/rover/bump', self._on_bump, 10)
         self.create_subscription(Bool, '/rover/stall', self._on_stall, 10)
-        self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_wheel_left, 10)
-        self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_wheel_right, 10)
-        self.create_subscription(Range, '/rover/sonar/range', self._on_range, 10)
+        self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_wheel_left, TELEMETRY_QOS)
+        self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_wheel_right, TELEMETRY_QOS)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_range, qos_profile_sensor_data)
         self.create_subscription(Float32, '/rover/sonar/pan_deg', self._on_pan, 10)
         self.create_subscription(Bool, '/rover/sonar/avoid_active', self._on_sonar_avoid, 10)
-        self.create_subscription(Range, '/rover/tof/left', self._on_tof_left, 10)
-        self.create_subscription(Range, '/rover/tof/right', self._on_tof_right, 10)
-        self.create_subscription(Range, '/rover/tof/front', self._on_tof_front, 10)
-        self.create_subscription(Range, '/rover/tof/front_left', self._on_tof_front_left, 10)
-        self.create_subscription(Range, '/rover/tof/front_right', self._on_tof_front_right, 10)
-        self.create_subscription(Float32MultiArray, '/rover/tof/l8_cols', self._on_l8_cols, 10)
+        self.create_subscription(Range, '/rover/tof/left', self._on_tof_left, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/tof/right', self._on_tof_right, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/tof/front', self._on_tof_front, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/tof/front_left', self._on_tof_front_left, qos_profile_sensor_data)
+        self.create_subscription(Range, '/rover/tof/front_right', self._on_tof_front_right, qos_profile_sensor_data)
+        self.create_subscription(Float32MultiArray, '/rover/tof/l8_cols', self._on_l8_cols, qos_profile_sensor_data)
         self.create_subscription(UInt8, '/rover/ir/hits', self._on_ir_hits, 10)
-        self.create_subscription(UInt8, '/rover/ir/peer', self._on_ir_peer, 10)
+        self.create_subscription(UInt8, '/rover/ir/peer', self._on_ir_peer, TELEMETRY_QOS)
 
         self.create_timer(self.TICK, self._tick)
         self.create_timer(self.HEARTBEAT_PERIOD, self._send_heartbeat)

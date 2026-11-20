@@ -25,6 +25,7 @@ def main() -> int:
     import rclpy
     from rclpy.node import Node
     from std_msgs.msg import UInt32
+    from rover_qos import TELEMETRY_QOS
 
     class _Mon(Node):
         def __init__(self) -> None:
@@ -32,8 +33,8 @@ def main() -> int:
             self.left = 0
             self.right = 0
             self._t0 = time.monotonic()
-            self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_l, 10)
-            self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_r, 10)
+            self.create_subscription(UInt32, '/rover/wheel/left_ticks', self._on_l, TELEMETRY_QOS)
+            self.create_subscription(UInt32, '/rover/wheel/right_ticks', self._on_r, TELEMETRY_QOS)
 
         def _on_l(self, msg: UInt32) -> None:
             self.left = int(msg.data)

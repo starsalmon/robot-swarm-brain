@@ -10,12 +10,13 @@ import time
 from pathlib import Path
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Imu, Range
 from std_msgs.msg import Bool, Float32, UInt8
 
-from rover_qos import CMD_VEL_QOS
+from rover_qos import CMD_VEL_QOS, TELEMETRY_QOS
 from rover_radar import background_instance, clearest_gap_led, scan_hits
 from rover_scan_map import led_to_bearing
 from rover_twist import wire_to_logical
@@ -72,14 +73,14 @@ class SonarEscapeRecorder(Node):
         self._esp_best_m = 0.0
         self._esp_event_id = 0
 
-        self.create_subscription(Range, '/rover/sonar/range', self._on_range, 10)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_range, qos_profile_sensor_data)
         self.create_subscription(Float32, '/rover/sonar/pan_deg', self._on_pan, 10)
         self.create_subscription(Bool, '/rover/sonar/avoid_active', self._on_avoid, 10)
         self.create_subscription(UInt8, '/rover/sonar/escape_event', self._on_escape_event, 10)
         self.create_subscription(Float32, '/rover/sonar/escape_turn', self._on_escape_turn, 10)
         self.create_subscription(Float32, '/rover/sonar/escape_best_deg', self._on_escape_best_deg, 10)
         self.create_subscription(Float32, '/rover/sonar/escape_best_m', self._on_escape_best_m, 10)
-        self.create_subscription(Imu, '/imu/data', self._on_imu, 10)
+        self.create_subscription(Imu, '/imu/data', self._on_imu, TELEMETRY_QOS)
         self.create_subscription(Twist, '/cmd_vel', self._on_cmd, CMD_VEL_QOS)
         self.create_timer(0.1, self._tick_followups)
 

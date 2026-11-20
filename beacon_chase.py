@@ -8,6 +8,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Range
 from std_msgs.msg import Bool, Float32
 
@@ -30,13 +31,14 @@ class BeaconChase(Node):
         self._dual_ir = os.environ.get('IR_DUAL', '0') == '1'
         self._left = False
         self._ir_cfg = IrSteerConfig(pan_center=pan_center)
-        self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_detected, 10)
-        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
+        self.create_subscription(Bool, f'/{ns}/ir/detected', self._on_detected, qos_profile_sensor_data)
+        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, qos_profile_sensor_data)
         # Forward gate (same as explore_then_chase): no forward lin without fresh sonar.
         self._guard = WanderState.from_config(WanderConfig.from_env(pan_center=pan_center))
         self.create_subscription(
             Range, f'/{ns}/sonar/range',
-            lambda m: self._guard.update_range(float(m.range), self._pan_deg), 10)
+            lambda m: self._guard.update_range(float(m.range), self._pan_deg),
+            qos_profile_sensor_data)
         self.create_timer(self.TICK, self._tick)
         mode = 'dual TSOP' if self._dual_ir else 'pan-scan (body still until IR in view)'
         self.get_logger().info(f'beacon_chase: {mode} hold={self.SIGNAL_HOLD}s')

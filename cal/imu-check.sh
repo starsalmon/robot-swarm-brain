@@ -26,6 +26,7 @@ python3 - <<PY
 import math, time
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu
 
 class S(Node):
@@ -36,7 +37,7 @@ class S(Node):
         self.ax = []
         self.ay = []
         self.az = []
-        self.create_subscription(Imu, "'"$TOPIC"'", self.cb, 10)
+        self.create_subscription(Imu, "'"$TOPIC"'", self.cb, qos_profile_sensor_data)
     def cb(self, m):
         self.n += 1
         self.gz.append(float(m.angular_velocity.z))

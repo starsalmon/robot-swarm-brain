@@ -10,19 +10,43 @@ Ticks are unsigned, so each wheel's sign comes from the commanded wheel speed in
 (v -/+ w*track/2), held for ROVER_ODOM_SIGN_HOLD_S after the command drops to 0 (coasting).
 Ticks arriving with no non-zero command in that window are rejected (ROVER_ODOM_GATE_IDLE=1): the
 unsigned ticks carry no direction without a command, so hand-pushes are ignored rather than guessed.
+
+IMU health (2026-11-13): if /imu/data goes quiet (MPU not answering on the drive board, drive_diag
+mpu=0), the EKF's only yaw source is this tick-derived yaw rate, which over-reads pivots badly
+(skid + min-PWM wheel spin). With no IMU for ROVER_ODOM_IMU_STALE_S, wheel yaw rate is published
+as 0 with a large covariance (ROVER_ODOM_NOIMU_WHEEL_YAW=0 -> trust the lidar scan matcher for turns
+instead of runaway wheel yaw), and /rover/odom/imu_ok (Bool, 1 Hz) reports the state so mapping
+preflight can refuse to start. Per-wheel bursts faster than ROVER_ODOM_MAX_WHEEL_MPS are dropped.
 """
-import math, os, time
+import math, os, re, time
 import yaml, rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
-from std_msgs.msg import UInt32
+from std_msgs.msg import UInt32, Int32, Bool, String
 from tf2_ros import StaticTransformBroadcaster
+from rover_qos import TELEMETRY_QOS
 
 CFG = os.environ.get("ROVER_FRAMES_YAML", "/opt/fleet/config/rover_frames.yaml")
 HOLD = float(os.environ.get("ROVER_ODOM_SIGN_HOLD_S", "1.5"))
 GATE = os.environ.get("ROVER_ODOM_GATE_IDLE", "1") == "1"  # drop ticks with no recent drive cmd
+IMU_STALE = float(os.environ.get("ROVER_ODOM_IMU_STALE_S", "2.0"))
+NOIMU_WHEEL_YAW = os.environ.get("ROVER_ODOM_NOIMU_WHEEL_YAW", "0") == "1"
+MAX_WHEEL_MPS = float(os.environ.get("ROVER_ODOM_MAX_WHEEL_MPS", "0.6"))
+YAW_SCALE = float(os.environ.get("ROVER_ODOM_YAW_SCALE", "1.0"))  # set after a measured hand 360
+# PS4 manual drive (2026-11-20): the T-Display mixes PS4 sticks on-board, so /cmd_vel stays 0.
+# /rover/drive_diag (1 Hz) carries the applied signed wheel commands tgt=L/R cur=L/R (logical, before
+# MOTOR_INVERT) and ps4_man. While ps4_man=1 the wheel sign comes from diag cur (or tgt) and /cmd_vel is ignored.
+DIAG_HOLD = float(os.environ.get("ROVER_ODOM_DIAG_HOLD_S", "2.5"))
+DIAG_EPS = float(os.environ.get("ROVER_ODOM_DIAG_EPS", "0.04"))
+DIAG_RE = re.compile(r"tgt=(-?[0-9.]+)/(-?[0-9.]+) cur=(-?[0-9.]+)/(-?[0-9.]+)")
+MAN_RE = re.compile(r"ps4_man=(\d)")
+# Signed ticks (T-Display 858fd74, 2026-11-20): /rover/wheel/{left,right}_ticks_signed (Int32) count +/- by the
+# firmware's applied wheel direction (drv.cur_*). While a wheel's signed topic is fresh, its delta sets both
+# direction and distance and the unsigned topic only keeps its baseline; otherwise the old unsigned+command logic runs.
+SIGNED_FRESH = float(os.environ.get("ROVER_ODOM_SIGNED_FRESH_S", "1.0"))
+USE_SIGNED = os.environ.get("ROVER_ODOM_USE_SIGNED", "1") == "1"
 
 
 def quat(r, p, y):
@@ -45,11 +69,26 @@ class RoverOdom(Node):
         self.tf_static.sendTransform(ts)
         self.pub = self.create_publisher(Odometry, "/rover/odom/wheel", 10)
         self.pub_imu = self.create_publisher(Imu, "/rover/imu/stamped", 20)
-        self.create_subscription(UInt32, "/rover/wheel/left_ticks", lambda m: self.on_tick(0, m.data), 20)
-        self.create_subscription(UInt32, "/rover/wheel/right_ticks", lambda m: self.on_tick(1, m.data), 20)
+        self.create_subscription(UInt32, "/rover/wheel/left_ticks", lambda m: self.on_tick(0, m.data), TELEMETRY_QOS)
+        self.create_subscription(UInt32, "/rover/wheel/right_ticks", lambda m: self.on_tick(1, m.data), TELEMETRY_QOS)
+        self.last_s = [None, None]
+        self.signed_t = [-1e9, -1e9]
+        self.signed_n = [0, 0]
+        if USE_SIGNED:
+            self.create_subscription(Int32, "/rover/wheel/left_ticks_signed", lambda m: self.on_tick_signed(0, m.data), TELEMETRY_QOS)
+            self.create_subscription(Int32, "/rover/wheel/right_ticks_signed", lambda m: self.on_tick_signed(1, m.data), TELEMETRY_QOS)
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd, 10)
-        self.create_subscription(Imu, "/imu/data", self.on_imu, 20)
+        self.create_subscription(String, "/rover/drive_diag", self.on_diag, TELEMETRY_QOS)
+        self.ps4_man = False
+        self.hold = [HOLD, HOLD]
+        self.diag_n = 0
+        self.create_subscription(Imu, "/imu/data", self.on_imu, TELEMETRY_QOS)
+        self.pub_imu_ok = self.create_publisher(Bool, "/rover/odom/imu_ok", 10)
+        self.imu_t = None
+        self.imu_ok_prev = None
+        self.burst = [0, 0]
         self.last = [None, None]
+        self.last_t = [None, None]
         self.sign = [1.0, 1.0]
         self.sign_t = [0.0, 0.0]
         self.acc = [0.0, 0.0]          # signed metres since last odom publish
@@ -60,6 +99,7 @@ class RoverOdom(Node):
         self.rejected = [0, 0]
         self.create_timer(0.05, self.step)
         self.create_timer(10.0, self.log)
+        self.create_timer(1.0, self.imu_watch)
         self.get_logger().info(f"{self.m_tick*1000:.2f} mm/tick, track {self.track*1000:.0f} mm, frames from {CFG}")
 
     def tf(self, parent, child, xyz, rpy):
@@ -71,25 +111,94 @@ class RoverOdom(Node):
         t.transform.rotation.x, t.transform.rotation.y, t.transform.rotation.z, t.transform.rotation.w = q
         return t
 
+    def on_diag(self, m):
+        g = DIAG_RE.search(m.data)
+        mm = MAN_RE.search(m.data)
+        self.ps4_man = bool(mm and mm.group(1) == "1")
+        if not g:
+            return
+        self.diag_n += 1
+        tl, tr, cl, cr = (float(x) for x in g.groups())
+        now = time.monotonic()
+        for i, (c, t) in enumerate(((cl, tl), (cr, tr))):
+            v = c if abs(c) > DIAG_EPS else t   # ramped applied PWM first, else target
+            if abs(v) > DIAG_EPS and (self.ps4_man or now - self.sign_t[i] > HOLD):
+                self.sign[i] = 1.0 if v > 0 else -1.0
+                self.sign_t[i] = now
+                self.hold[i] = DIAG_HOLD
+
     def on_cmd(self, m):
+        if self.ps4_man:
+            return   # firmware ignores ROS drive while PS4 manual is on
         now = time.monotonic()
         for i, v in enumerate((m.linear.x - m.angular.z * self.track / 2, m.linear.x + m.angular.z * self.track / 2)):
             if abs(v) > 1e-3:
                 self.sign[i] = 1.0 if v > 0 else -1.0
                 self.sign_t[i] = now
+                self.hold[i] = HOLD
+
+    def imu_ok(self):
+        return self.imu_t is not None and time.monotonic() - self.imu_t < IMU_STALE
+
+    def imu_watch(self):
+        ok = self.imu_ok()
+        self.pub_imu_ok.publish(Bool(data=ok))
+        if ok != self.imu_ok_prev:
+            if ok:
+                self.get_logger().info("IMU /imu/data live: wheel yaw rate back on")
+            else:
+                self.get_logger().warn(
+                    "IMU /imu/data silent >%.1fs (drive_diag mpu=0?): wheel yaw rate %s" %
+                    (IMU_STALE, "still fed (ROVER_ODOM_NOIMU_WHEEL_YAW=1)" if NOIMU_WHEEL_YAW else "zeroed, cov inflated"))
+            self.imu_ok_prev = ok
+
+    def signed_fresh(self, i, now=None):
+        return USE_SIGNED and ((now or time.monotonic()) - self.signed_t[i]) < SIGNED_FRESH
+
+    def on_tick_signed(self, i, n):
+        now = time.monotonic()
+        was_fresh = self.signed_fresh(i, now)
+        prev, prev_t = self.last_s[i], self.signed_t[i]
+        self.last_s[i] = n
+        self.signed_t[i] = now
+        self.signed_n[i] += 1
+        if prev is None or not was_fresh:
+            return   # first sample or resuming after a gap: new baseline only
+        d = n - prev
+        a = abs(d)
+        dt = now - prev_t
+        if a == 0 or a >= 500:
+            return   # no motion, or ESP reset / glitch
+        if a * self.m_tick > MAX_WHEEL_MPS * max(dt, 0.1) * 1.5:
+            self.burst[i] += a
+        elif GATE and now - self.sign_t[i] > self.hold[i]:
+            self.rejected[i] += a   # no drive command: phantom ticks
+        else:
+            self.acc[i] += d * self.m_tick
+            self.total[i] += a
 
     def on_tick(self, i, n):
+        now = time.monotonic()
+        if self.signed_fresh(i, now):
+            self.last[i] = n   # signed topic owns this wheel; keep the unsigned baseline current
+            self.last_t[i] = now
+            return
         if self.last[i] is not None:
             d = n - self.last[i]
-            if 0 < d < 500:          # negative = ESP reset/wrap; huge = glitch
-                if GATE and time.monotonic() - self.sign_t[i] > HOLD:
+            dt = now - self.last_t[i] if self.last_t[i] is not None else 0.1
+            if 0 < d < 500 and d * self.m_tick > MAX_WHEEL_MPS * max(dt, 0.1) * 1.5:
+                self.burst[i] += d   # faster than the wheel can turn: glitch / reconnect burst
+            elif 0 < d < 500:          # negative = ESP reset/wrap; huge = glitch
+                if GATE and now - self.sign_t[i] > self.hold[i]:
                     self.rejected[i] += d   # no drive command: phantom ticks (sensor noise / stray IR)
                 else:
                     self.acc[i] += self.sign[i] * d * self.m_tick
                     self.total[i] += d
         self.last[i] = n
+        self.last_t[i] = now
 
     def on_imu(self, m):
+        self.imu_t = time.monotonic()
         m.header.stamp = self.get_clock().now().to_msg()
         m.header.frame_id = "imu_link"
         m.angular_velocity_covariance = [0.01, 0, 0, 0, 0.01, 0, 0, 0, 0.0004]
@@ -101,8 +210,11 @@ class RoverOdom(Node):
         now = time.monotonic()
         dt = max(1e-3, now - self.t_prev); self.t_prev = now
         dl, dr = self.acc; self.acc = [0.0, 0.0]
-        ds, dth = (dl + dr) / 2, (dr - dl) / self.track
-        self.x += ds * math.cos(self.th + dth / 2); self.y += ds * math.sin(self.th + dth / 2); self.th += dth
+        ds, dth = (dl + dr) / 2, YAW_SCALE * (dr - dl) / self.track
+        imu_ok = self.imu_ok()
+        if not imu_ok and not NOIMU_WHEEL_YAW:
+            dth = 0.0   # no IMU: unsigned-tick pivot yaw is not trustworthy enough to integrate
+        self.x += ds * math.cos(self.th + dth / 2); self.y += ds * math.sin(self.th + dth / 2); self.th = math.atan2(math.sin(self.th + dth), math.cos(self.th + dth))
         a = 0.4  # light smoothing: ticks arrive at 10 Hz
         self.vx = (1 - a) * self.vx + a * ds / dt
         self.wz = (1 - a) * self.wz + a * dth / dt
@@ -117,12 +229,12 @@ class RoverOdom(Node):
             o.pose.covariance[k] = v
         o.twist.twist.linear.x, o.twist.twist.angular.z = self.vx, self.wz
         o.twist.covariance = [0.0] * 36
-        for k, v in ((0, 0.002), (7, 1e-4), (14, 1e3), (21, 1e3), (28, 1e3), (35, 0.02)):
+        for k, v in ((0, 0.002), (7, 1e-4), (14, 1e3), (21, 1e3), (28, 1e3), (35, 0.02 if imu_ok or NOIMU_WHEEL_YAW else 1.0)):
             o.twist.covariance[k] = v
         self.pub.publish(o)
 
     def log(self):
-        self.get_logger().info(f"ticks L{self.total[0]} R{self.total[1]} (idle-rejected L{self.rejected[0]} R{self.rejected[1]}) pose x={self.x:.3f} y={self.y:.3f} th={math.degrees(self.th):.1f}deg")
+        self.get_logger().info(f"ticks L{self.total[0]} R{self.total[1]} (idle-rejected L{self.rejected[0]} R{self.rejected[1]} burst L{self.burst[0]} R{self.burst[1]}) imu_ok={self.imu_ok()} ps4_man={int(self.ps4_man)} signed={int(self.signed_fresh(0))}{int(self.signed_fresh(1))} diag_n={self.diag_n} sign L{self.sign[0]:+.0f} R{self.sign[1]:+.0f} pose x={self.x:.3f} y={self.y:.3f} th={math.degrees(self.th):.1f}deg")
 
 
 def main():

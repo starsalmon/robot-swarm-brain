@@ -17,6 +17,7 @@ import time
 from collections import defaultdict
 
 import rclpy
+from rclpy.qos import qos_profile_sensor_data
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Range
@@ -66,7 +67,7 @@ class PanValidate(Node):
         self._pub = self.create_publisher(Twist, '/cmd_vel', CMD_VEL_QOS)
         self._session_pub = self.create_publisher(Bool, '/rover/session', 10)
         self._cal_pub = self.create_publisher(Bool, '/rover/sonar/cal_sweep', 10)
-        self.create_subscription(Range, '/rover/sonar/range', self._on_range, 10)
+        self.create_subscription(Range, '/rover/sonar/range', self._on_range, qos_profile_sensor_data)
         self.create_subscription(Float32, '/rover/sonar/pan_deg', self._on_pan, 10)
         self.create_timer(0.2, self._publish_session)
         if mode == 'creep':

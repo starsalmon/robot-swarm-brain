@@ -8,6 +8,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Imu, Range
 from std_msgs.msg import Float32
 
@@ -24,9 +25,9 @@ class MiniWander(Node):
         self.pub = self.create_publisher(Twist, f'/{ns}/cmd_vel', 10)
         self._wander = WanderState.from_config(WanderConfig.from_env(pan_center=pan_center))
         self._pan_deg = pan_center
-        self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, 10)
-        self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, 10)
-        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, 10)
+        self.create_subscription(Range, f'/{ns}/sonar/range', self._on_range, qos_profile_sensor_data)
+        self.create_subscription(Imu, f'/{ns}/imu', self._on_imu, qos_profile_sensor_data)
+        self.create_subscription(Float32, f'/{ns}/sonar/pan_deg', self._on_pan, qos_profile_sensor_data)
         self.create_timer(self.TICK, self._tick)
         self.get_logger().info(f'mini_wander: /{ns}/sonar/range → /{ns}/cmd_vel')
 
